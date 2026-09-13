@@ -1,0 +1,29 @@
+To enter the chat system:
+
+    chat
+
+    When you first join you will be in a public channel. Anything you
+    type that does not begin with "/" will be sent to all
+    participants.
+
+To see who's currently in chat:
+
+    /who
+
+To send a single private message to someone:
+
+    /msg <user> <message>
+
+To enter a private chat with someone:
+
+    /chat <user>
+
+    Anything you type will be sent as a private message to that user.
+
+To exit a private chat:
+
+    /leave
+
+To return to the command line:
+
+    /quit
