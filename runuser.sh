@@ -5,8 +5,14 @@ if [[ -z "$SRC_CALLSIGN" ]]; then
   exit 1
 fi
 
+container_name="bbs-user-${SRC_CALLSIGN,,}"
+
+if docker container inspect "$container_name" >&/dev/null; then
+  docker rm -f "$container_name" >&/dev/null
+fi
+
 docker run --rm -it \
-  --name "bbs-user-${SRC_CALLSIGN,,}" \
+  --name "$container_name" \
   --network none \
   --read-only \
   --tmpfs /etc \
@@ -17,5 +23,6 @@ docker run --rm -it \
   -v unixbbs-data:/bbs-data \
   -v unixbbs-sock:/bbs-sock \
   -v unixbbs-mailsock:/bbs-sock/mail \
+  -v unixbbs-chatsock:/bbs-sock/chat \
   -e SRC_CALLSIGN \
   unixbbs-user

@@ -47,6 +47,26 @@ services:
       - user-service
     restart: unless-stopped
 
+  chat-service:
+    build:
+      context: .
+      dockerfile: container/chat-service/Containerfile
+    command:
+      - -db=/bbs-data/bbs.db
+      - -socket=/bbs-sock/chat.sock
+    # bbs-data is mounted read-only in full: unlike mail-service (which
+    # needs to write mail/), chat-service only ever issues SELECT
+    # queries against bbs.db (DESIGN.md §9.1/§9.4), and the whole-volume
+    # mount avoids the subpath auto-vivification race documented on
+    # mail-service below (this isn't a subpath mount, so it doesn't hit
+    # that problem, but there's also no reason to risk it).
+    volumes:
+      - bbs-data:/bbs-data:ro
+      - bbs-chatsock:/bbs-sock
+    depends_on:
+      - user-service
+    restart: unless-stopped
+
   cron-service:
     build:
       context: ./container/cron
@@ -63,3 +83,5 @@ volumes:
     name: unixbbs-sock
   bbs-mailsock:
     name: unixbbs-mailsock
+  bbs-chatsock:
+    name: unixbbs-chatsock

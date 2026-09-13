@@ -22,10 +22,10 @@ ingress (whatever spawns a container per incoming connection and sets
 - **No network access at all from user containers** (`--network none`) —
   all communication with core services happens over Unix sockets on a
   shared filesystem.
+- Line-oriented interactive chat, identity from the local username only
+  (no IRC-style handles) — see §9.
 
 **Non-goals (for now)**
-- Interactive chat — designed (see §9) but not yet built; see §7 for
-  where it lands in build order.
 - Internet-facing SMTP (no outbound mail, no MX, no relaying to the
   world).
 - The AX.25/TNC ingress and the process that runs `docker run` per
@@ -949,11 +949,12 @@ not a blocker.)
    send, read, and `bulletins`, all passing — this is also what
    surfaced the `EnsureUserDirs` parent-directory-mode bug documented in
    §3.
-6. `chat-service` (§9): same Go/Unix-socket house style as
-   `user-service`, `bbs.db` mounted read-only like `mail-service`, plus
-   the `unixbbs-chatsock` volume and the `/usr/local/bin/chat` wrapper
-   added to the ephemeral image. No compose/entrypoint changes needed
-   beyond the new service and volume — see §9.1 for why.
+6. `chat-service` (§9, **done**): same Go/Unix-socket house style as
+   `user-service`, `bbs-data` mounted read-only, plus the
+   `unixbbs-chatsock` volume and the `/usr/local/bin/chat` wrapper added
+   to the ephemeral image. No compose/entrypoint changes needed beyond
+   the new service and volume, as expected — see §9.1. Not yet run
+   end-to-end against a real ephemeral container (§9.5).
 
 ## 8. Open items to confirm during implementation
 
@@ -986,8 +987,19 @@ not a blocker.)
 
 ## 9. Chat
 
-**Design only — not yet implemented; see §7 (build step 6) for where
-this lands.**
+**Implemented**: `chat-service/` (Go module, mirroring `user-service/`'s
+layout: `internal/chat` for the session registry/routing, `internal/
+identity` for the peer-credential lookup below), `container/
+chat-service/Containerfile`, the `chat-service` entry and
+`unixbbs-chatsock` volume in `compose.yaml`, and
+`container/user/chat.sh` (installed as `/usr/local/bin/chat`) in the
+ephemeral image. This section went through three real revisions during
+implementation and review, not just wording passes, so they're called
+out inline below rather than silently folded in: §9.1's client script
+(dropped `raw,echo=0`), and §9.2's `/chat` semantics twice over (first
+made mutual to fix a reply-leaks-to-general bug, then reverted to
+one-directional plus a `/block` command once mutual pairing turned out
+to be its own abuse vector — see §9.2 for both).
 
 `shazow/ssh-chat` (the earlier proposal) is dropped, not deferred for
 transport reasons this time but because it's the wrong shape for what's
@@ -1033,15 +1045,28 @@ ordinary `PATH` script (installed the same way as `/usr/local/bin/users`
 and `/usr/local/bin/bulletins`, §4.2/§4):
 
 ```sh
-#!/bin/dash
-exec socat -,raw,echo=0 UNIX-CONNECT:/bbs-sock/chat/chat.sock
+#!/bin/sh
+exec socat - UNIX-CONNECT:/bbs-sock/chat/chat.sock
 ```
 
-`socat`'s `raw` stdio mode gives full-duplex behavior for free —
-incoming broadcast/DM lines print interleaved with the user's own
-typing, no bespoke client binary, no polling — the same tool already
-required elsewhere in this design (§2.2/§4.2), just without the extra
-TCP hop those two need for reasons specific to them.
+**Correction over an earlier pass at this section**: that pass specified
+`socat -,raw,echo=0 UNIX-CONNECT:...`, reasoning that `raw` mode was
+needed for full-duplex behavior. It isn't, and `echo=0` is actively
+wrong: `raw` puts the controlling terminal into non-canonical mode with
+local echo *off*, which would make the user's own typing invisible
+(no local echo) and hand `chat-service` a job it has no business
+doing — implementing character-by-character line editing and echo
+itself, the same territory as a telnet/SSH server's line-mode
+negotiation, which is exactly the complexity dropping `ssh-chat`
+(above) was meant to avoid. `socat` gives full-duplex forwarding of
+concurrent reads/writes regardless of the terminal's canonical/raw
+setting — that part of the original reasoning was right — so the fix is
+simply to leave the terminal alone: plain `socat - UNIX-CONNECT:...`,
+with no address options at all, keeps the existing (already-canonical,
+already-echoing) AX.25 terminal session's own line editing and echo
+exactly as it is for every other command in this image (`mail`,
+`users`, `bulletins`), and `chat-service` only ever has to deal with
+complete, newline-terminated lines — never raw keystrokes.
 
 ### 9.2 Protocol
 
@@ -1071,14 +1096,38 @@ Commands:
                          confusion.
 /msg <user> <text>    -- one-shot private message to <user>; does not
                          change the sender's current conversation.
-                         Errors if <user> isn't connected to chat.
-/chat <user>          -- redirect subsequently-typed unprefixed lines to
-                         a private conversation with <user>, until
-                         /leave. Calling /chat again while already in a
-                         private chat retargets immediately -- no forced
-                         /leave first. Errors if <user> isn't connected
-                         to chat.
-/leave                -- return from a private chat to `general`.
+                         Errors if <user> isn't connected to chat --
+                         see the block/error-ambiguity note under
+                         /block below, which applies here too.
+/chat <user>          -- redirect the caller's own subsequently-typed
+                         unprefixed lines to <user>, until /leave.
+                         <user> gets a one-line invite naming the exact
+                         commands to reciprocate (/chat back) or shut
+                         the sender out (/block) -- see below for why
+                         this is one-directional, not mutual. Calling
+                         /chat again while already in a private
+                         conversation retargets immediately -- no
+                         forced /leave first. Errors if <user> isn't
+                         connected to chat (or has blocked the caller,
+                         see /block).
+/leave                -- return from a private chat to `general`. Only
+                         changes the caller's own target -- the partner
+                         is not forced out (they keep addressing this
+                         user until they too /leave, /chat someone
+                         else, or this user disconnects, see §9.3),
+                         since both users remain connected to chat and
+                         reachable regardless.
+/block <user>         -- stop hearing from <user>: their future /chat
+                         invites and /msg attempts fail for them the
+                         same way as <user> simply not being connected
+                         to chat at all -- deliberately indistinguishable,
+                         so a blocked user gets no confirmation their
+                         behavior is working and no signal to escalate.
+                         Their general-channel lines (including join/
+                         leave notices) are hidden from the blocker too.
+                         One-directional: <user> can still see/reach the
+                         blocker.
+/unblock <user>       -- reverse a previous /block.
 /quit                 -- close the chat session (client exits; the
                          server sees EOF and cleans up exactly as for
                          any other disconnect -- see §9.3).
@@ -1087,6 +1136,41 @@ Commands:
 
 `<user>` is matched case-insensitively, consistent with callsign
 matching everywhere else in this design (`COLLATE NOCASE`, §3).
+
+**`/chat`'s design went through two real revisions, not just wording,
+and both are worth keeping on record:**
+
+1. The very first version had `/chat` retarget only the caller's own
+   outgoing lines, with no notice to the other side at all. That was a
+   real bug: the *recipient* of a private message, replying with a
+   plain line -- exactly what the message they just received looks
+   like it invites -- would silently broadcast that reply to all of
+   `general` instead of sending it back privately, with nothing telling
+   them so.
+2. The fix applied next was to make `/chat` **mutual** -- pairing both
+   sides' targets at each other automatically, so a plain reply on
+   either side always reached the other. That closed the reply-leak
+   bug, but opened a worse one: it meant anyone could unilaterally
+   redirect where a *stranger's* own typing went, with no action from
+   them at all, which is straightforwardly abusable (repeatedly
+   yanking someone into unwanted private conversations, drowning out
+   whatever they meant to type to `general` instead).
+
+The version actually implemented resolves both: `/chat` is
+one-directional again (only the caller's own target moves), which means
+nobody's outgoing lines are ever redirected without their own `/chat`
+call — but the original bug doesn't reopen, because the recipient now
+gets an explicit, actionable notice (`*** ALICE wants to chat with you
+-- /chat ALICE to join, or /block ALICE to stop hearing from them`)
+instead of silence. A recipient who ignores that notice and types a
+plain reply anyway still broadcasts it to `general` -- that residual gap
+was judged acceptable (an explicit invite is a much smaller footgun than
+total silence) rather than building a full accept/reject handshake with
+pending-invite state, given this system's non-anonymous, real-callsign
+user base (§1) already carries real accountability that a fully
+anonymous public chat wouldn't have. `/block` is the actual abuse
+control for a user who keeps sending unwanted invites or messages, not
+a consent gate on `/chat` itself.
 
 ### 9.3 Presence, join/leave, and disconnect handling
 
@@ -1101,12 +1185,15 @@ session was in.
 
 If a session's private-chat partner disconnects entirely (container
 dies, link drops, or they `/quit`) while a `/chat` conversation is
-active, the remaining session gets a `*** N0CALL has left` notice and is
-moved back to `general` automatically, rather than being left typing
-into a conversation nobody will read. A partner who merely `/leave`s
-their side, by contrast, doesn't force the other party out — both
-sessions are still connected to chat and reachable via a fresh `/chat`
-or `/msg`.
+active, the remaining session is moved back to `general` automatically
+— rather than being left typing into a conversation nobody will read —
+and gets a `*** N0CALL has left` notice, *unless* it had `/block`ed
+N0CALL, in which case it's still moved back to `general` but the notice
+is suppressed: `/block`'s whole point is to stop hearing from someone,
+including hearing that they left. A partner who merely `/leave`s their
+side, by contrast, doesn't force the other party out — both sessions
+are still connected to chat and reachable via a fresh `/chat` or
+`/msg`.
 
 ### 9.4 Data layout additions
 
@@ -1119,18 +1206,41 @@ unixbbs-chatsock               # named volume, mirrors unixbbs-mailsock
   chat.sock                    # mode 0666 -- see §9.1
 ```
 
-`chat-service` mounts `bbs.db` read-only, exactly like `mail-service`
-(§4) — a second read-only consumer of that database, never a writer.
+`chat-service` mounts the whole `bbs-data` volume `:ro` at the Docker
+level (`compose.yaml`) — unlike `mail-service`, which needs read-write
+access to `bbs-data` for `mail/` delivery and treats "`bbs.db` is
+read-only" as a software invariant only (§4/§6), chat-service has no
+such need, so this is a real guarantee, not just a convention. It's a
+whole-volume mount rather than a subpath one specifically to avoid the
+subpath auto-vivification race documented on `mail-service`'s volume
+(§4's note on why a per-subpath read-only mount was rejected there) —
+that race is specific to subpath mounts, but there's no reason to
+introduce one here when a whole-volume mount works just as well.
+`chat-service` additionally opens `bbs.db` itself with SQLite's own
+`?mode=ro` URI parameter, so the read-only constraint is enforced at
+the driver level too, not just by the mount.
 
 ### 9.5 Open items to confirm during implementation
 
 (in addition to §8)
 
-- Confirm `SO_PEERCRED` is actually populated as expected for Go's
-  `net.UnixConn` in the target container runtime — this design leans on
-  it as the *entire* identity mechanism (§9.1), so it deserves a
-  dedicated smoke test early, not just an assumption from documentation.
-- Confirm `socat`'s `raw,echo=0` stdio mode behaves correctly end-to-end
-  over the actual AX.25/dumb-terminal path, not just a local pty — the
-  one part of this design without a directly-analogous precedent already
-  tested elsewhere in this document.
+- **Confirmed end-to-end, not just unit-tested**: two real
+  `--network none` ephemeral containers (`docker run` with distinct
+  `$SRC_CALLSIGN` values, against the actual compose stack), each
+  running the real `chat.sh`, correctly resolved to their own separate
+  callsigns via `SO_PEERCRED` across the shared `unixbbs-chatsock`
+  volume — general broadcast; one-directional `/chat` (including the
+  invite notice, and the unreciprocated side's plain reply correctly
+  *not* reaching the inviter); private messaging; `/who`; `/block`
+  making a target's `/msg` fail exactly like it's disconnected, with no
+  notice leaked to the blocked party; and the disconnect-bounce notice
+  on `/quit` (and its suppression once blocked) — all behaved exactly as
+  specified above. This had been the one part of the design without a
+  directly-analogous precedent already tested elsewhere in this
+  document; it no longer is.
+- Still open: the plain (non-`raw`) `socat` client (§9.1) has only been
+  exercised with piped, non-interactive stdin (a test harness, not a
+  real terminal) and only over loopback Docker networking on a
+  developer machine — confirm local echo and line editing behave as
+  expected over the actual AX.25/dumb-terminal path, not just this
+  substitute.

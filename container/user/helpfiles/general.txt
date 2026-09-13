@@ -23,6 +23,14 @@ To read system news:
 
     news
 
+To chat with other users:
+
+    chat
+
+    Once connected, anything you type without a leading "/" goes to your
+    current conversation (general chat, or a private chat entered with
+    /chat). Type "/help" inside chat for the full command list.
+
 To log out:
 
     exit
