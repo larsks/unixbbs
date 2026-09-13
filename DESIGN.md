@@ -24,8 +24,8 @@ ingress (whatever spawns a container per incoming connection and sets
   shared filesystem.
 
 **Non-goals (for now)**
-- Interactive chat (deferred — see §9; it doesn't fit the socket-only
-  model as cleanly as mail/user-lookup do).
+- Interactive chat — designed (see §9) but not yet built; see §7 for
+  where it lands in build order.
 - Internet-facing SMTP (no outbound mail, no MX, no relaying to the
   world).
 - The AX.25/TNC ingress and the process that runs `docker run` per
@@ -949,6 +949,11 @@ not a blocker.)
    send, read, and `bulletins`, all passing — this is also what
    surfaced the `EnsureUserDirs` parent-directory-mode bug documented in
    §3.
+6. `chat-service` (§9): same Go/Unix-socket house style as
+   `user-service`, `bbs.db` mounted read-only like `mail-service`, plus
+   the `unixbbs-chatsock` volume and the `/usr/local/bin/chat` wrapper
+   added to the ephemeral image. No compose/entrypoint changes needed
+   beyond the new service and volume — see §9.1 for why.
 
 ## 8. Open items to confirm during implementation
 
@@ -979,16 +984,153 @@ not a blocker.)
   design references use `lmdb:` rather than `hash:` if a flat-file map is
   ever needed alongside the SQLite one.
 
-## 9. Chat (deferred)
+## 9. Chat
 
-Dropped from this iteration because it doesn't fit the socket-only model
-as directly as mail/user-lookup: `shazow/ssh-chat` (the earlier proposal)
-is an SSH server, and SSH clients don't have a stock way to dial a Unix
-socket the way `curl --unix-socket` or Postfix's `unix:` next-hop do.
-When this comes back, the likely options are (a) a `socat`-style
-loopback-TCP-to-socket shim per ephemeral container, same trick as the
-mail fallback in §2, or (b) giving chat sessions a narrowly-scoped
-network path (e.g. a second, still-`--internal`/no-internet network that
-*only* chat-enabled containers join) rather than reusing the
-`--network none` + socket approach used for mail/user lookups. Worth
-revisiting once the mail/login flow is solid rather than guessing now.
+**Design only — not yet implemented; see §7 (build step 6) for where
+this lands.**
+
+`shazow/ssh-chat` (the earlier proposal) is dropped, not deferred for
+transport reasons this time but because it's the wrong shape for what's
+actually needed: it's an SSH server, and its identity model is SSH
+keys plus a client-chosen handle — at odds with §1's requirement that
+chat identity come *only* from the already-provisioned local username,
+with no IRC-style handle. In its place: a small purpose-built
+`chat-service`, matching `user-service`'s own house style (Go, a
+Unix-domain socket, schema/config via `embed` not string literals,
+`any` not `interface{}`, `gofmt` on every change).
+
+### 9.1 Transport and identity: peer credentials, not a login step
+
+`chat-service` listens on one world-connectable Unix-domain socket,
+`chat.sock` (mode `0666`, same reasoning as `user-read.sock`, §4.1), in
+a new named volume `unixbbs-chatsock` mounted at chat-service's own
+socket directory and at `/bbs-sock/chat/` in every ephemeral container
+— mirroring `unixbbs-mailsock` (§3).
+
+By the time a user could invoke chat, their session is already running
+as a unique, per-login UID (`useradd -u $UID`, §5 step 5). So instead of
+a registration handshake or a client-supplied name, `chat-service` reads
+the connecting process's credentials directly off the accepted socket
+(`SO_PEERCRED`; Go's `unix.GetsockoptUcred` on the `net.UnixConn`) and
+resolves that UID to a callsign with a **read-only** query against
+`bbs.db` (`SELECT callsign FROM users WHERE uid = ?`) — the same
+read-only access `mail-service` already has (§4). A session can't claim
+a callsign other than the one it logged in as, without any
+protocol-level login exchange: the kernel supplies the identity, which
+is what "no handles" actually requires at the mechanism level, not just
+the UI level.
+
+One consequence worth calling out because it corrects an earlier,
+too-hasty version of this design: **no TCP-loopback shim and no
+privileged pre-`exec` step are needed for chat**, unlike the mail relay
+(§2.2) or presence registration (§4.2). Those two need a shim because
+either the protocol has no `unix:` next-hop (mail) or the connection has
+to be opened while still root, before the privilege drop (presence).
+Neither applies here — the chat client just *is* `socat`, dialing the
+socket directly from the user's own already-unprivileged shell, so its
+peer credentials are correct for free. `/usr/local/bin/chat` is an
+ordinary `PATH` script (installed the same way as `/usr/local/bin/users`
+and `/usr/local/bin/bulletins`, §4.2/§4):
+
+```sh
+#!/bin/dash
+exec socat -,raw,echo=0 UNIX-CONNECT:/bbs-sock/chat/chat.sock
+```
+
+`socat`'s `raw` stdio mode gives full-duplex behavior for free —
+incoming broadcast/DM lines print interleaved with the user's own
+typing, no bespoke client binary, no polling — the same tool already
+required elsewhere in this design (§2.2/§4.2), just without the extra
+TCP hop those two need for reasons specific to them.
+
+### 9.2 Protocol
+
+Line-oriented, no escape sequences, consistent with §1's dumb-terminal
+constraint. On connect, a session lands in the `general` channel with a
+short banner. Every subsequent line is either:
+
+- **A command**, if it starts with `/`. The leading `/` is simply
+  reserved, with no escape mechanism for a literal one: a line starting
+  with `/` that doesn't match a known command produces
+  `no such command: /whatever` and nothing else. Typing a message that
+  happens to start with a literal slash (e.g. `/etc/foo is broken`) is
+  therefore a rare, self-explanatory failure rather than something the
+  protocol tries to accommodate — a deliberate simplicity trade-off over
+  an escaping rule (`//`) that would otherwise be needed.
+- **A message**, otherwise — sent to whichever is current: `general`, or
+  an active private chat if one has been entered with `/chat`.
+
+Commands:
+
+```
+/who                  -- list users currently connected to chat. NOT
+                         the same roster as the top-level `users`
+                         command (§4.2), which reflects general BBS
+                         login/presence -- renamed from the earlier
+                         /users proposal specifically to avoid that
+                         confusion.
+/msg <user> <text>    -- one-shot private message to <user>; does not
+                         change the sender's current conversation.
+                         Errors if <user> isn't connected to chat.
+/chat <user>          -- redirect subsequently-typed unprefixed lines to
+                         a private conversation with <user>, until
+                         /leave. Calling /chat again while already in a
+                         private chat retargets immediately -- no forced
+                         /leave first. Errors if <user> isn't connected
+                         to chat.
+/leave                -- return from a private chat to `general`.
+/quit                 -- close the chat session (client exits; the
+                         server sees EOF and cleans up exactly as for
+                         any other disconnect -- see §9.3).
+/help                 -- print the command list above.
+```
+
+`<user>` is matched case-insensitively, consistent with callsign
+matching everywhere else in this design (`COLLATE NOCASE`, §3).
+
+### 9.3 Presence, join/leave, and disconnect handling
+
+Same principle as §4.2: `chat-service` learns a session has ended from
+its connection's `Read` returning EOF/error, not from a heartbeat or
+requiring a clean `/quit` — a killed container, a dropped AX.25 link,
+and an explicit `/quit` are all handled identically, since all three
+just close the socket. On both join and leave, `chat-service` broadcasts
+a plain notice (`*** N0CALL has joined`, `*** N0CALL has left`) to the
+affected channel — `general`, or whichever private chat the leaving
+session was in.
+
+If a session's private-chat partner disconnects entirely (container
+dies, link drops, or they `/quit`) while a `/chat` conversation is
+active, the remaining session gets a `*** N0CALL has left` notice and is
+moved back to `general` automatically, rather than being left typing
+into a conversation nobody will read. A partner who merely `/leave`s
+their side, by contrast, doesn't force the other party out — both
+sessions are still connected to chat and reachable via a fresh `/chat`
+or `/msg`.
+
+### 9.4 Data layout additions
+
+```
+unixbbs-chatsock               # named volume, mirrors unixbbs-mailsock
+                                # (§3): mounted at chat-service's own
+                                # socket directory, and at
+                                # /bbs-sock/chat/ in every ephemeral
+                                # container
+  chat.sock                    # mode 0666 -- see §9.1
+```
+
+`chat-service` mounts `bbs.db` read-only, exactly like `mail-service`
+(§4) — a second read-only consumer of that database, never a writer.
+
+### 9.5 Open items to confirm during implementation
+
+(in addition to §8)
+
+- Confirm `SO_PEERCRED` is actually populated as expected for Go's
+  `net.UnixConn` in the target container runtime — this design leans on
+  it as the *entire* identity mechanism (§9.1), so it deserves a
+  dedicated smoke test early, not just an assumption from documentation.
+- Confirm `socat`'s `raw,echo=0` stdio mode behaves correctly end-to-end
+  over the actual AX.25/dumb-terminal path, not just a local pty — the
+  one part of this design without a directly-analogous precedent already
+  tested elsewhere in this document.
