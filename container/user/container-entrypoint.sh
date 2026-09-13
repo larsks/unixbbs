@@ -95,7 +95,7 @@ useradd -u "$USERID" -g "$USERID" -d "/bbs-data/home/$USERID" -M \
 export MAIL="/bbs-data/mail/$USERID/"
 export HOME="/bbs-data/home/$USERID"
 export TERM=dumb
-export LESS=-d
+export LESS=-dE
 export PAGER=less
 
 # 7. Exec as the provisioned account into dash. This process never had

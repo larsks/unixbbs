@@ -18,7 +18,9 @@ RUN apk add --no-cache \
     curl \
     jq \
     bash \
-    less
+    less \
+    openvi \
+    ed
 
 # Alpine has no update-alternatives mechanism, so installing msmtp does
 # not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
@@ -27,6 +29,7 @@ RUN apk add --no-cache \
 # reported "cannot send message" with no other clue). msmtp ships its
 # own drop-in sendmail-compatible CLI, so this symlink is required.
 RUN ln -sf /usr/bin/msmtp /usr/sbin/sendmail
+RUN ln -sf /usr/bin/oex /usr/bin/ex
 
 COPY syslesskey /etc/syslesskey
 COPY mail.rc /etc/mail.rc
@@ -34,8 +37,10 @@ COPY msmtprc /etc/msmtprc
 COPY profile /etc/bbs-profile
 COPY users.sh /usr/local/bin/users
 COPY news.sh /usr/local/bin/news
+COPY help.sh /usr/local/bin/help
+COPY helpfiles /helpfiles
 COPY container-entrypoint.sh /container-entrypoint.sh
-RUN chmod 755 /container-entrypoint.sh /usr/local/bin/users /usr/local/bin/news
+RUN chmod 755 /container-entrypoint.sh /usr/local/bin/*
 
 # The container runs with `--read-only` (DESIGN.md §6), so /etc needs to
 # be a writable tmpfs at `docker run` time (`--tmpfs /etc`) for

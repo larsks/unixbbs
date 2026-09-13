@@ -1,0 +1,65 @@
+You can use the `ex` editor to edit files:
+
+    ex myfile.txt
+
+Use the "a" command to start writing to the file. Enter a "." on a line by
+itself to return to the ex prompt:
+
+    myfile.txt: new file: line 1
+    :a
+    the quick brown fox
+    jumped over
+    the lazy dog
+    .
+    :
+
+Use the "w" command to save the file:
+
+    :w
+    myfile.txt: new file: 3 lines, 45 characters
+
+Use the "p" command with a range to print lines in the file:
+
+    :1,$p
+    the quick brown fox
+    jumped over
+    the lazy dog
+
+It can be helpful to enable line numbering:
+
+    :set number
+    :1,$p
+        1  the quick brown fox
+        2  jumped over
+        3  the lazy dog
+    :
+
+Use "d" to delete a line:
+
+    :3d
+        2  jumped over
+    :1,$p
+        1  the quick brown fox
+        2  jumped over
+
+Use "c" to change lines:
+
+    :2c
+        3  fell over
+        4  the inconvenient ocelot
+        5  .
+    :1,$p
+        1  the quick brown fox
+        2  fell over
+        3  the inconvenient ocelot
+
+Use the "wq" command to save and exit:
+
+    :wq
+    myfile.txt: 3 lines, 54 characters
+
+Use the "q!" command to exit without saving:
+
+    :q!
+
+

@@ -1,0 +1,28 @@
+To access online help:
+
+    help         -- show this help text
+    help -l      -- show available help topics
+    help <topic> -- show help for <topic>
+
+To see a list of users:
+
+    users    -- list known users
+    users -o -- list users currently online
+
+To read or send mail:
+
+    mail        -- read your mail
+    mail <user> -- send mail to <user>
+
+    When editing a message, enter "." on a line by itself to save the message
+    and exit.
+
+    Enter "~?" on a line by itself to show some editor help.
+
+To read system news:
+
+    news
+
+To log out:
+
+    exit
