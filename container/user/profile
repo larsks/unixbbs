@@ -9,5 +9,6 @@ Welcome to the BBS.
   news  -- read news
   users -- list known/online users
   chat  -- join the chat room
+  last  -- show recent logins
 
 EOF

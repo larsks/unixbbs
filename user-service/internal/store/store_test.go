@@ -82,6 +82,82 @@ func TestGetOrCreateIsCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestRecordAndRecentLogins(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	for _, cs := range []string{"N0CALL", "W1AW", "K2ABC"} {
+		if err := st.RecordLogin(ctx, 10000, cs); err != nil {
+			t.Fatalf("RecordLogin(%q): %v", cs, err)
+		}
+	}
+
+	logins, err := st.RecentLogins(ctx, 10)
+	if err != nil {
+		t.Fatalf("RecentLogins: %v", err)
+	}
+	if len(logins) != 3 {
+		t.Fatalf("len(logins) = %d, want 3", len(logins))
+	}
+	// Newest first.
+	want := []string{"K2ABC", "W1AW", "N0CALL"}
+	for i, l := range logins {
+		if l.Callsign != want[i] {
+			t.Errorf("logins[%d].Callsign = %q, want %q", i, l.Callsign, want[i])
+		}
+	}
+}
+
+func TestRecentLoginsRespectsLimit(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	for range 5 {
+		if err := st.RecordLogin(ctx, 10000, "N0CALL"); err != nil {
+			t.Fatalf("RecordLogin: %v", err)
+		}
+	}
+
+	logins, err := st.RecentLogins(ctx, 2)
+	if err != nil {
+		t.Fatalf("RecentLogins: %v", err)
+	}
+	if len(logins) != 2 {
+		t.Fatalf("len(logins) = %d, want 2", len(logins))
+	}
+}
+
+func TestExpireLogins(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	if err := st.RecordLogin(ctx, 10000, "N0CALL"); err != nil {
+		t.Fatalf("RecordLogin (recent): %v", err)
+	}
+	if _, err := st.db.ExecContext(ctx,
+		`INSERT INTO logins (uid, callsign, logged_in_at) VALUES (?, ?, datetime('now', '-15 days'));`,
+		10001, "W1AW",
+	); err != nil {
+		t.Fatalf("insert stale login: %v", err)
+	}
+
+	n, err := st.ExpireLogins(ctx)
+	if err != nil {
+		t.Fatalf("ExpireLogins: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ExpireLogins deleted %d rows, want 1", n)
+	}
+
+	logins, err := st.RecentLogins(ctx, 10)
+	if err != nil {
+		t.Fatalf("RecentLogins: %v", err)
+	}
+	if len(logins) != 1 || logins[0].Callsign != "N0CALL" {
+		t.Fatalf("RecentLogins after expiry = %+v, want only the recent N0CALL row", logins)
+	}
+}
+
 func TestList(t *testing.T) {
 	st := openTestStore(t)
 	ctx := context.Background()

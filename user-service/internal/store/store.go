@@ -97,6 +97,71 @@ func (s *Store) GetOrCreate(ctx context.Context, callsign string) (User, bool, e
 	return u, created, nil
 }
 
+// Login is a single row of the logins table: one recorded login event.
+type Login struct {
+	UID        int64
+	Callsign   string
+	LoggedInAt string
+}
+
+// RecordLogin appends a login history row for uid/callsign, timestamped
+// now.
+func (s *Store) RecordLogin(ctx context.Context, uid int64, callsign string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO logins (uid, callsign) VALUES (?, ?);`,
+		uid, callsign,
+	)
+	if err != nil {
+		return fmt.Errorf("record login: %w", err)
+	}
+	return nil
+}
+
+// RecentLogins returns the most recent limit login history rows, newest
+// first.
+func (s *Store) RecentLogins(ctx context.Context, limit int) ([]Login, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT uid, callsign, logged_in_at FROM logins ORDER BY id DESC LIMIT ?;`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent logins: %w", err)
+	}
+	defer rows.Close()
+
+	var logins []Login
+	for rows.Next() {
+		var l Login
+		if err := rows.Scan(&l.UID, &l.Callsign, &l.LoggedInAt); err != nil {
+			return nil, fmt.Errorf("scan login: %w", err)
+		}
+		logins = append(logins, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("recent logins: %w", err)
+	}
+
+	return logins, nil
+}
+
+// ExpireLogins deletes login history rows older than 14 days and
+// returns the number of rows removed.
+func (s *Store) ExpireLogins(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM logins WHERE logged_in_at < datetime('now', '-14 days');`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("expire logins: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+
+	return n, nil
+}
+
 // List returns every known user, ordered by uid.
 func (s *Store) List(ctx context.Context) ([]User, error) {
 	rows, err := s.db.QueryContext(ctx,

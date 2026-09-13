@@ -1244,3 +1244,39 @@ the driver level too, not just by the mount.
   developer machine — confirm local echo and line editing behave as
   expected over the actual AX.25/dumb-terminal path, not just this
   substitute.
+
+## 10. Login history
+
+**Implemented**: a `logins` table in `bbs.db` (schema in
+`internal/store/schema.sql`, alongside `users`), a `last` command
+(`container/user/last.sh`, installed as `/usr/local/bin/last`,
+replacing busybox's own `last` applet — see below), and a daily
+`expire-logins` cron job in `container/cron`.
+
+A row is appended to `logins` (uid, callsign, timestamp) every time
+`handleLookup` succeeds on `user-write.sock` — that endpoint already
+runs exactly once per session, at login (ENTRYPOINT step 2, §5), so
+it's the natural place to record the event rather than adding a
+separate call. `/usr/local/bin/last` (installed the same way as
+`/usr/local/bin/users`, §4.2) queries a new read-only endpoint, `GET
+/users/logins` on `user-read.sock`, which returns the 10 most recent
+rows newest-first — the same trust-split rationale as `/users/list`
+and `/users/online` (§4.1): the unprivileged shell can read login
+history but never write it.
+
+`/usr/local/bin/last` shadows busybox's own `last` applet (which reads
+`/var/log/wtmp` — nonexistent in this image, and meaningless anyway
+since sessions aren't OS-level logins) purely through `$PATH` ordering:
+`/usr/local/bin` precedes `/usr/bin`, the same mechanism already
+relied on for `users`/`news`/`chat`/`help`.
+
+Retention (14 days) is enforced by `user-service` itself, not by the
+cron container: `user-service` is the only writer to `bbs.db` (§4/§6),
+so `expire-logins` (`container/cron/expire-logins.sh`) calls a new
+write-socket endpoint, `POST /users/logins/expire`, rather than
+deleting rows from `bbs.db` directly. This is why `cron-service` now
+also mounts the `unixbbs-sock` volume at `/bbs-sock` and depends on
+`user-service` in `compose.yaml`, alongside the existing `bbs-data` and
+`bbs-mailsock` mounts it already had for `update-news`. The job runs
+daily at 03:15, alongside the existing `*/30` `update-news` schedule in
+`container/cron/crontabs/root`.

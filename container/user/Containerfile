@@ -40,6 +40,7 @@ COPY users.sh /usr/local/bin/users
 COPY news.sh /usr/local/bin/news
 COPY chat.sh /usr/local/bin/chat
 COPY help.sh /usr/local/bin/help
+COPY last.sh /usr/local/bin/last
 COPY helpfiles /helpfiles
 COPY container-entrypoint.sh /container-entrypoint.sh
 RUN chmod 755 /container-entrypoint.sh /usr/local/bin/*

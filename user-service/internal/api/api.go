@@ -21,6 +21,9 @@ type Provisioner interface {
 	EnsureUserDirs(uid int64) error
 }
 
+// recentLoginsLimit is how many rows the `last` command shows.
+const recentLoginsLimit = 10
+
 // Handlers holds the shared state used by both sockets' handlers.
 type Handlers struct {
 	Store       *store.Store
@@ -36,6 +39,7 @@ func (h *Handlers) WriteMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /users/lookup", h.handleLookup)
 	mux.HandleFunc("POST /users/presence", h.handlePresence)
+	mux.HandleFunc("POST /users/logins/expire", h.handleExpireLogins)
 	return mux
 }
 
@@ -45,6 +49,7 @@ func (h *Handlers) ReadMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /users/list", h.handleList)
 	mux.HandleFunc("GET /users/online", h.handleOnline)
+	mux.HandleFunc("GET /users/logins", h.handleRecentLogins)
 	return mux
 }
 
@@ -80,6 +85,14 @@ func (h *Handlers) handleLookup(w http.ResponseWriter, r *http.Request) {
 	// out from under an otherwise-existing account.
 	if err := h.Provisioner.EnsureUserDirs(user.UID); err != nil {
 		log.Printf("provision uid %d: %v", user.UID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Lookup runs exactly once per session, at login (see
+	// container-entrypoint.sh step 2), so this is the login event itself.
+	if err := h.Store.RecordLogin(r.Context(), user.UID, user.Callsign); err != nil {
+		log.Printf("record login for %q: %v", user.Callsign, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -159,6 +172,48 @@ func (h *Handlers) handleOnline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleRecentLogins serves the `last` command: the most recent
+// recentLoginsLimit login history rows, newest first.
+func (h *Handlers) handleRecentLogins(w http.ResponseWriter, r *http.Request) {
+	logins, err := h.Store.RecentLogins(r.Context(), recentLoginsLimit)
+	if err != nil {
+		log.Printf("recent logins: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	type loginInfo struct {
+		Callsign   string `json:"callsign"`
+		LoggedInAt string `json:"logged_in_at"`
+	}
+	out := make([]loginInfo, len(logins))
+	for i, l := range logins {
+		out[i] = loginInfo{Callsign: l.Callsign, LoggedInAt: l.LoggedInAt}
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+type expireLoginsResponse struct {
+	Deleted int64 `json:"deleted"`
+}
+
+// handleExpireLogins deletes login history older than 14 days. Called
+// by a daily cron job (container/cron) -- see DESIGN.md's note that
+// user-service is the only writer to bbs.db, so the cron container
+// goes through this endpoint rather than touching the database file
+// directly.
+func (h *Handlers) handleExpireLogins(w http.ResponseWriter, r *http.Request) {
+	n, err := h.Store.ExpireLogins(r.Context())
+	if err != nil {
+		log.Printf("expire logins: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, expireLoginsResponse{Deleted: n})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
