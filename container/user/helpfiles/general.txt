@@ -9,16 +9,6 @@ To see a list of users:
     users    -- list known users
     users -o -- list users currently online
 
-To read or send mail:
-
-    mail        -- read your mail
-    mail <user> -- send mail to <user>
-
-    When editing a message, enter "." on a line by itself to save the message
-    and exit.
-
-    Enter "~?" on a line by itself to show some editor help.
-
 To read system news:
 
     news
@@ -26,14 +16,6 @@ To read system news:
 To see who's logged in recently:
 
     last
-
-To chat with other users:
-
-    chat
-
-    Once connected, anything you type without a leading "/" goes to your
-    current conversation (general chat, or a private chat entered with
-    /chat). Type "/help" inside chat for the full command list.
 
 To log out:
 

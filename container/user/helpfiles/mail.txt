@@ -1,0 +1,39 @@
+To read your mail:
+
+    mail
+
+At the "mail>" prompt, enter a message number to read it:
+
+    "/bbs-data/mail/10000/": 1 message 1 new
+    >N   1 N0CALL@bbs.local   Sun Sep 13 13:12  14/466   Example message
+    mail> 1
+    From: N0CALL@bbs.local
+    Subject: Example message
+    To: n1lks
+    Date: Sun, 13 Sep 2026 13:12:16 -0400
+
+    This is a test message.
+    mail> 
+
+To delete a message, use the "d" command to delete the current message, or "d <msg>" to delete a specific message:
+
+    "/bbs-data/mail/10000/": 2 messages 2 new
+    >n   1 n0call@bbs.local   sun sep 13 13:12  14/466   example message
+     n   2 n1call@bbs.local   sun sep 13 13:14  14/457   second message
+    mail> d 2
+    mail> 
+
+You can use the "h" ("headers") command to re-display the list of messages:
+
+    mail> h
+    >N   1 N0CALL@bbs.local   Sun Sep 13 13:12  14/466   Example message
+    mail> 
+
+To send mail to another user:
+
+    mail [-s <subject>] <user>
+
+    When editing a message, enter "." on a line by itself to save the message
+    and exit.
+
+    Enter "~?" on a line by itself to show some editor help.
