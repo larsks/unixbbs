@@ -10,8 +10,20 @@
 # external `docker run` invocations (spawning ephemeral containers) can
 # reference them by a name that doesn't depend on which directory this
 # stack happens to be brought up from.
+#
+# Each service declares both `image:` and `build:`. This lets Compose
+# switch between local builds and pre-built images from ghcr.io/larsks
+# without editing this file:
+#   - `docker compose up`          uses/pulls the `image:` (fast, no
+#                                   local build; what a Pi should do)
+#   - `docker compose build`, or
+#     `docker compose up --build`  builds from source and tags the
+#                                   result with that same `image:` name
+# `TAG` selects which published version to pull (see .env.example);
+# it defaults to `latest`.
 services:
   user-service:
+    image: ghcr.io/larsks/unixbbs-user-service:${TAG:-latest}
     build:
       context: .
       dockerfile: container/user-service/Containerfile
@@ -30,6 +42,7 @@ services:
     restart: unless-stopped
 
   mail-service:
+    image: ghcr.io/larsks/unixbbs-mail-service:${TAG:-latest}
     build:
       context: ./container/mail
       dockerfile: Containerfile
@@ -55,6 +68,7 @@ services:
     restart: unless-stopped
 
   chat-service:
+    image: ghcr.io/larsks/unixbbs-chat-service:${TAG:-latest}
     build:
       context: .
       dockerfile: container/chat-service/Containerfile
@@ -78,6 +92,7 @@ services:
     restart: unless-stopped
 
   cron-service:
+    image: ghcr.io/larsks/unixbbs-cron-service:${TAG:-latest}
     build:
       context: ./container/cron
       dockerfile: Containerfile
