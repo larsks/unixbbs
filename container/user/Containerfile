@@ -20,7 +20,8 @@ RUN apk add --no-cache \
     bash \
     less \
     openvi \
-    ed
+    ed \
+    tzdata
 
 # Alpine has no update-alternatives mechanism, so installing msmtp does
 # not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
@@ -52,5 +53,7 @@ RUN chmod 755 /container-entrypoint.sh /usr/local/bin/*
 # put in /etc above -- this snapshot is what the entrypoint restores
 # from on every container start, before provisioning the account.
 RUN cp -a /etc /etc.orig
+
+ENV TZ=US/Eastern
 
 ENTRYPOINT ["/container-entrypoint.sh"]
