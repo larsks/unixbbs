@@ -1,0 +1,40 @@
+FROM docker.io/alpine:3
+
+# postfix-sqlite is required separately from postfix: Alpine splits
+# map-type support into subpackages, and the base postfix package has no
+# `hash:`/`lmdb:` or `sqlite:` support built in (confirmed: no Berkeley DB
+# linked in at all). See DESIGN.md §4.
+RUN apk add --no-cache postfix postfix-sqlite
+
+COPY sqlite-virtual-mailbox.cf sqlite-virtual-uid.cf sqlite-virtual-gid.cf /etc/postfix/
+RUN chown root:postfix /etc/postfix/sqlite-virtual-mailbox.cf \
+        /etc/postfix/sqlite-virtual-uid.cf /etc/postfix/sqlite-virtual-gid.cf && \
+    chmod 640 /etc/postfix/sqlite-virtual-mailbox.cf \
+        /etc/postfix/sqlite-virtual-uid.cf /etc/postfix/sqlite-virtual-gid.cf
+
+# myorigin is what makes an unqualified `RCPT TO:<callsign>` resolve at
+# all (DESIGN.md §2.3). virtual_uid_maps/virtual_gid_maps are genuine
+# per-recipient dynamic sqlite lookups, confirmed by testing to deliver
+# each user's mail owned by that user's own uid:gid, matching the
+# mail/<uid> ownership user-service sets up. Logging is left on
+# Postfix's syslog default -- the entrypoint runs busybox `syslogd -C`
+# (a bounded in-memory ring buffer, read with `logread`) rather than
+# maillog_file, so there's no on-disk log file to rotate or cap. alias_maps
+# is cleared to silence a harmless "no aliases db" warning -- this design
+# has no local aliasing, only virtual mailboxes.
+RUN postconf -e \
+        myorigin=bbs.local \
+        virtual_mailbox_domains=bbs.local \
+        virtual_mailbox_base=/bbs-data/mail \
+        virtual_mailbox_maps=sqlite:/etc/postfix/sqlite-virtual-mailbox.cf \
+        virtual_uid_maps=sqlite:/etc/postfix/sqlite-virtual-uid.cf \
+        virtual_gid_maps=sqlite:/etc/postfix/sqlite-virtual-gid.cf \
+        virtual_minimum_uid=10000 \
+        virtual_transport=virtual \
+        alias_maps= \
+    && echo 'bbssock/mailsock unix  n  -  n  -  -  smtpd' >> /etc/postfix/master.cf
+
+COPY container-entrypoint.sh /container-entrypoint.sh
+RUN chmod 755 /container-entrypoint.sh
+
+ENTRYPOINT ["/container-entrypoint.sh"]

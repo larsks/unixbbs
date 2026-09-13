@@ -1,0 +1,36 @@
+FROM docker.io/alpine:3
+
+# See DESIGN.md §5 "Image contents":
+#   mailutils (not mailx -- mailx cannot read the Maildir format
+#     mail-service delivers into, see DESIGN.md §2.4)
+#   msmtp + socat  -- outbound relay path, see DESIGN.md §2.2/§2.3
+#   dash           -- provisioned account's login shell
+#   shadow         -- groupadd/useradd for per-session account provisioning
+#   su-exec        -- minimal privilege drop before exec'ing into dash
+#   curl + jq      -- user-service calls (lookup, presence, `users` command)
+RUN apk add --no-cache \
+    mailutils \
+    msmtp \
+    socat \
+    dash \
+    shadow \
+    su-exec \
+    curl \
+    jq
+
+# Alpine has no update-alternatives mechanism, so installing msmtp does
+# not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
+# sendmail stub applet, which mailutils' `mail` invokes and which
+# silently fails to actually send anything (confirmed by testing: `mail`
+# reported "cannot send message" with no other clue). msmtp ships its
+# own drop-in sendmail-compatible CLI, so this symlink is required.
+RUN ln -sf /usr/bin/msmtp /usr/sbin/sendmail
+
+COPY msmtprc /etc/msmtprc
+COPY profile /etc/bbs-profile
+COPY users.sh /usr/local/bin/users
+COPY bulletins.sh /usr/local/bin/bulletins
+COPY container-entrypoint.sh /container-entrypoint.sh
+RUN chmod 755 /container-entrypoint.sh /usr/local/bin/users /usr/local/bin/bulletins
+
+ENTRYPOINT ["/container-entrypoint.sh"]

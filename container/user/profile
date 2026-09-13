@@ -1,0 +1,11 @@
+# Sourced by the entrypoint before exec'ing the interactive shell (see
+# container-entrypoint.sh) -- plain text only, per prompt.md's dumb-
+# terminal requirement: no color, no escape sequences.
+cat <<'EOF'
+Welcome to the BBS.
+
+  mail       -- read and send mail (unqualified callsigns as recipients)
+  bulletins  -- read bulletins (see /bbs-data/bulletins)
+  users      -- list known/online users
+
+EOF

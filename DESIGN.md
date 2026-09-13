@@ -184,6 +184,19 @@ exactly the case a minimal relay-only client MTA is built for, so we use
 deprecated and dropped from Debian; `msmtp` is the maintained
 equivalent, so there's no reason to pick `ssmtp`.)
 
+**A required extra step, confirmed by testing, not just a packaging
+nicety**: installing `msmtp` on Alpine does **not** repoint
+`/usr/sbin/sendmail` at it — Alpine has no `update-alternatives`
+mechanism, so that path is left as a symlink to busybox's own
+`sendmail` stub applet. `mailutils`' `mail` always invokes plain
+`sendmail`, never `msmtp` directly, so with the stock symlink left in
+place every send silently goes nowhere (`mail` reports "cannot send
+message" with no further detail; nothing reaches `mail-service` at
+all). The fix is one line in the image build:
+`ln -sf /usr/bin/msmtp /usr/sbin/sendmail`, overwriting the busybox
+symlink — msmtp ships its own sendmail-compatible CLI specifically for
+this.
+
 **Confirmed: this is a real simplification, not a wash.** Dropping
 Postfix from the ephemeral image removes an entire daemon tree
 (`master`/`qmgr`/`pickup`/`cleanup`/`smtpd`/`trivial-rewrite`) that has
@@ -319,7 +332,9 @@ $DATADIR/
                              # for why Maildir over mbox
   home/
     <uid>/                  # persistent per-user home dir, mode 0700
-  bulletins/                # shared, read-only board content
+  bulletins/                # a Maildir (cur/new/tmp), owned root:root,
+                             # no group/other write bit -- see the
+                             # "Bulletins" subsection under §4
 ```
 
 `.envrc` already sets `DATADIR=data`; `UIDFILE=uid` is superseded by
@@ -529,9 +544,13 @@ container):
    reliably), with `myorigin = bbs.local` (required — see §2.3 for why
    this single line is what makes unqualified recipients work at all),
    `bbs.local` configured as a `virtual_mailbox_domain`,
-   `virtual_mailbox_maps = sqlite:/etc/postfix/sqlite-virtual.cf`
-   (a small config file naming `bbs.db`, read-only, and the
-   `callsign → uid` query, returning `<uid>/` — the **trailing slash is
+   `virtual_mailbox_maps = sqlite:/etc/postfix/sqlite-virtual-mailbox.cf`
+   plus matching `virtual_uid_maps`/`virtual_gid_maps` entries pointed at
+   their own small `sqlite:` config files (all three naming `bbs.db`,
+   read-only, keyed by the same `callsign → uid` query; see the
+   confirmed-by-testing note below step 3 for why two more map files
+   beyond the mailbox one are needed). The mailbox map's query returns
+   `<uid>/` — the **trailing slash is
    required**: it's Postfix's own convention for "deliver as Maildir"
    in the `virtual` transport, and is what makes step 3 below a Maildir
    delivery rather than mbox — on Alpine this requires the separate
@@ -550,6 +569,33 @@ container):
    deliberate, not incidental — see §2.4 for why, and for why that also
    settles `mailutils` vs `mailx` for the read path below.
 
+   **Confirmed by testing, not just assumed from the docs**: the file
+   delivered actually lands owned by the *recipient's own* uid:gid, not
+   some fixed Postfix-controlled owner. This depends on
+   `virtual_uid_maps`/`virtual_gid_maps` genuinely supporting
+   **per-recipient dynamic lookup**, not just a single static uid/gid —
+   an untested assumption going into this build (earlier design-phase
+   testing only ever exercised one uid). Retested properly with two
+   distinct users: pointing both maps at `sqlite:` queries keyed by the
+   same `%s` recipient callsign (`SELECT uid FROM users WHERE callsign =
+   '%s' COLLATE NOCASE`) correctly produced two different uid/gid pairs
+   for the two users' delivered files. This is what lets `mail-service`
+   deliver correctly-owned mail for *any* user without per-user
+   configuration, matching the `mail/<uid>` ownership `user-service`
+   already sets up in its provisioning step.
+
+   Also confirmed, and required in the real container (not just a test
+   convenience): a minimal Alpine image runs no syslog daemon, so
+   Postfix's default syslog-based logging produces no visible output at
+   all by default — there's simply nothing listening on `/dev/log`. The
+   fix used here is `mail-service`'s entrypoint running busybox's own
+   `syslogd -C64` (confirmed working end-to-end with Postfix's logging,
+   including the §2.1 lock-file `fatal:` line) rather than Postfix's
+   `maillog_file` parameter: `-C` logs to a fixed-size in-memory ring
+   buffer, read back with `logread`, so there's no on-disk log file that
+   needs rotation or a size cap of its own — the ring buffer's fixed size
+   already bounds it.
+
 **Read path** (`mail`, run inside a user container): no socket call
 needed. `mail/` and `home/` are bind-mounted **in full** (not per-UID)
 into every ephemeral container at fixed paths, e.g. `/bbs-data/mail` and
@@ -559,6 +605,42 @@ to `/bbs-data/mail/<uid>/` for the provisioned account — GNU Mailutils'
 `mail` auto-detects the Maildir format from that path with zero further
 configuration (confirmed by testing; `mailx` cannot read a Maildir at
 all, which is why `mailutils` is the required package — see §2.4).
+
+### Bulletins
+
+The bulletin board is **also a Maildir**, not a plain directory of
+text files — this reuses `mailutils`/`mail`, already a required
+dependency, as the entire bulletin-reading UI for free: header
+summaries, per-message reading, all of it, with zero new code beyond a
+one-line wrapper script. `/usr/local/bin/bulletins` (installed exactly
+like `/usr/local/bin/users`, see §4.1/§4.2) is just
+`exec mail -f /bbs-data/bulletins`. Adding a bulletin is then just
+dropping an RFC822-formatted file (`From:`/`Subject:`/`Date:`/blank
+line/body) into that Maildir's `new/`, owned root — no service, no
+database, no code.
+
+**A real, confirmed-by-testing gotcha**: a Docker-level `:ro` bind
+mount does **not** work here. GNU Mailutils' Maildir backend always
+tries to open the mailbox for read-write first, regardless of intent —
+against a true `:ro` mount that open fails outright
+(`mu_mailbox_open failed: Read-only file system`, exit 1, no headers,
+no message text, nothing usable at all).
+
+The fix is **Unix permissions, not the mount flag**: bind-mount the
+bulletins Maildir read-**write** at the Docker level, but own every
+file and directory in it `root:root` with no write bit for
+group/other. Running as the unprivileged provisioned account, `mail`'s
+write-open then fails with `EACCES`, and — confirmed by testing —
+Mailutils catches that and gracefully self-downgrades to a read-only
+open on its own, printing one line (`mail: mailbox opened
+read-only`) and remaining fully functional: header summaries and
+message bodies both read correctly. A useful side effect of this over
+a real writable Maildir: since it can't write, `mail` never renames a
+message from `new/` to `cur/` to mark it read, so a bulletin never
+stops showing up as new — the same, unmutated state is what every
+session sees, which is arguably the more correct behavior for a
+bulletin board anyway (confirmed: re-running `bulletins` twice left
+`new/` untouched on the host both times).
 
 ## 5. Ephemeral user container
 
@@ -598,9 +680,11 @@ not a blocker.)
   pointing at the `socat` loopback shim — the recipient-qualification
   gap identified in an earlier pass turned out to need only a config
   change on `mail-service` (§2.3), not any code in this image.
-- `socat`, required (not optional) for the outbound relay shim in §2.2 —
-  the ephemeral container's entrypoint starts it in the background before
-  handing off to the login shell.
+- `socat`, required (not optional) for two things: the outbound relay
+  shim in §2.2, and — confirmed necessary by testing, not just a style
+  choice — actually opening the presence-registration connection in
+  step 3 below, since plain shell fd redirection cannot `connect(2)` to
+  an `AF_UNIX` socket.
 - `dash` as the provisioned account's login shell — plain, POSIX,
   line-oriented, well-behaved with no assumptions about terminal
   capabilities. No custom restricted-shell program; the container itself
@@ -630,11 +714,27 @@ not a blocker.)
    subshell that holds the connection open for the container's lifetime —
    *not* in the foreground script that will later `exec` into `dash`,
    so the interactive shell never inherits an open fd to the privileged
-   socket:
+   socket. Since `user-write.sock` speaks real HTTP even for this
+   endpoint (`user-service` reads one `POST /users/presence` request,
+   then hijacks the connection and never writes a response — the held-
+   open connection itself is the protocol), the request needs proper
+   framing, not a bare JSON line.
+
+   **A plain shell fd redirection cannot open this connection at all** —
+   confirmed by testing: `exec 3<>/bbs-sock/user-write.sock` fails with
+   `No such device or address`, because that's an `open(2)` against the
+   socket's inode, and `open(2)` cannot `connect(2)` to an `AF_UNIX`
+   socket. `socat` (already a required dependency, see §2.2) is needed
+   to actually connect; `tail -f /dev/null` supplies an endless, silent
+   input stream after the request bytes so the connection is held open
+   by this backgrounded pipeline's own lifetime, without reading the
+   container's real stdin (which belongs to the interactive session):
    ```sh
-   ( exec 3<>/bbs-sock/user-write.sock
-     printf '{"callsign":"%s","uid":%s}\n' "$CALLSIGN" "$UID" >&3
-     cat <&3 >/dev/null ) &
+   ( body=$(printf '{"callsign":"%s","uid":%s}' "$CALLSIGN" "$UID")
+     { printf 'POST /users/presence HTTP/1.1\r\nHost: user-service\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
+           "${#body}" "$body"
+       exec tail -f /dev/null
+     } | socat - "UNIX-CONNECT:/bbs-sock/user-write.sock" >/dev/null ) &
    ```
 4. Start the outbound relay shim (§2.2):
    `socat TCP-LISTEN:2525,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/bbs-sock/mail/mailsock &`
@@ -714,7 +814,9 @@ not a blocker.)
    `msmtp` + `socat` baked into the ephemeral image per §2.2/§2.3. Test
    with the literal command from the spec: `echo "Hello world" | mail -s
    "test message" n0call`.
-4. Bulletins (read-only mount, trivial once the volume layout exists).
+4. Bulletins: a root-owned, no-write-bit Maildir read via `mail -f`
+   through a one-line `/usr/local/bin/bulletins` wrapper — see §4's
+   "Bulletins" subsection.
 
 ## 8. Open items to confirm during implementation
 

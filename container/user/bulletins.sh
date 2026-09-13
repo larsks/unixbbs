@@ -1,0 +1,12 @@
+#!/bin/sh
+# Read the BBS bulletin board. See DESIGN.md §4 "Bulletins".
+#
+# The bulletin board is a Maildir, owned root:root with no write bits
+# for anyone else, bind-mounted read-write at /bbs-data/bulletins
+# (never with Docker's own `:ro` -- GNU Mailutils' Maildir driver
+# always opens for read-write first, and a true `:ro` mount makes that
+# open fail outright rather than degrade). Running unprivileged, `mail`
+# hits EACCES on the write and gracefully falls back to a read-only
+# open on its own, which also means it never marks a bulletin "already
+# read" -- every session sees the same, unmutated bulletin list.
+exec mail -f /bbs-data/bulletins

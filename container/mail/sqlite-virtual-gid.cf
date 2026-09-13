@@ -1,0 +1,2 @@
+dbpath = /bbs-data/bbs.db
+query = SELECT uid FROM users WHERE callsign = '%s' COLLATE NOCASE
