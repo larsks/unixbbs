@@ -15,12 +15,14 @@ COPY --from=build /tmp/safecat/build/safecat /usr/local/bin
 
 RUN apk add \
   bash \
-  vim \
-  mailutils \
   curl \
-  dash
+  dash \
+  git \
+  mailutils \
+  vim
 
+COPY crontabs /crontabs
 COPY update-news.sh /usr/local/bin/update-news
 RUN chmod 755 /usr/local/bin/*
 
-CMD ["bash"]
+CMD ["crond", "-f", "-c", "/crontabs", "-d", "8"]

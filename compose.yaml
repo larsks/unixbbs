@@ -47,6 +47,15 @@ services:
       - user-service
     restart: unless-stopped
 
+  cron-service:
+    build:
+      context: ./container/cron
+      dockerfile: Containerfile
+    volumes:
+      - bbs-data:/bbs-data
+      - bbs-mailsock:/var/spool/postfix/public/bbssock
+    restart: unless-stopped
+
 volumes:
   bbs-data:
     name: unixbbs-data
