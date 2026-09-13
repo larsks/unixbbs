@@ -1,0 +1,17 @@
+#!/bin/sh
+# Delivery command for the 'shared' pipe(8) transport (see master.cf,
+# appended in Containerfile, and virtual-shared-transport). Postfix's
+# virtual(8) agent hardcodes delivered maildir files at mode 0600 with no
+# postconf override -- incompatible with this mailbox's read-only-to-
+# everyone-else design -- so 'shared' mail is routed here instead. safecat
+# (vendored below in the Containerfile, same tool container/cron already
+# uses for maildir-safe delivery) explicitly creates files at mode 0644 --
+# but pipe(8) itself execs external delivery commands under a hardcoded
+# umask 077 (confirmed by testing: safecat's requested 0644 came out as
+# 0600 until this umask call was added), which silently masks that back
+# down. umask is a per-process attribute reset here before exec, not
+# something inherited immutably from the parent, so this is sufficient.
+# Writes to new/, not cur/, so mail shows up unread.
+set -e
+umask 022
+exec safecat /bbs-data/mail/shared/tmp /bbs-data/mail/shared/cur

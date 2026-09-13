@@ -1,0 +1,10 @@
+# Marks 'shared' as a valid recipient in the bbs.local virtual mailbox
+# domain, so RCPT TO:<shared> is accepted at SMTP time -- Postfix rejects
+# any recipient in a virtual_mailbox_domain that isn't listed in
+# virtual_mailbox_maps/virtual_alias_maps, regardless of transport_maps.
+# The value itself is never used for actual delivery: transport_maps
+# (see virtual-shared-transport) routes 'shared' mail to the pipe/safecat
+# transport instead of letting the virtual(8) agent write it directly
+# (virtual(8) hardcodes delivered files at mode 0600, incompatible with
+# this mailbox's world-readable design -- see deliver-shared).
+shared	shared/

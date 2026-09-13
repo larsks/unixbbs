@@ -1,0 +1,8 @@
+# Routes mail for the reserved 'shared' read-only mailbox pseudo-recipient
+# through the custom 'shared' pipe(8) transport (see master.cf, appended in
+# Containerfile) instead of the default virtual_transport -- so it's
+# delivered by deliver-shared/safecat rather than the virtual(8) agent,
+# whose hardcoded mode-0600 maildir files would make it unreadable to
+# everyone but the delivery agent itself. Static texthash:, independent of
+# bbs.db like the rest of the 'shared' configuration.
+shared@bbs.local	shared:
