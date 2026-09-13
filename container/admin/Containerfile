@@ -1,0 +1,25 @@
+FROM docker.io/alpine:3 AS build
+
+RUN apk add \
+  git \
+  alpine-sdk \
+  meson
+
+RUN git clone https://github.com/larsks/safecat /tmp/safecat
+WORKDIR /tmp/safecat
+RUN meson setup build && meson compile -C build
+
+FROM docker.io/alpine:3
+
+COPY --from=build /tmp/safecat/build/safecat /usr/local/bin
+
+RUN apk add \
+  bash \
+  vim \
+  mailutils \
+  curl
+
+COPY update-news.sh /usr/local/bin/update-news
+RUN chmod 755 /usr/local/bin/*
+
+CMD ["bash"]
