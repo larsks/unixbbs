@@ -16,7 +16,8 @@ RUN apk add --no-cache \
     shadow \
     su-exec \
     curl \
-    jq
+    jq \
+    bash
 
 # Alpine has no update-alternatives mechanism, so installing msmtp does
 # not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
@@ -26,6 +27,7 @@ RUN apk add --no-cache \
 # own drop-in sendmail-compatible CLI, so this symlink is required.
 RUN ln -sf /usr/bin/msmtp /usr/sbin/sendmail
 
+COPY mail.rc /etc/mail.rc
 COPY msmtprc /etc/msmtprc
 COPY profile /etc/bbs-profile
 COPY users.sh /usr/local/bin/users
