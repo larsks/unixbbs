@@ -1,0 +1,92 @@
+name: Build and publish images
+
+# Conventional Commits (https://www.conventionalcommits.org/) drive the
+# version bump, via semantic-release (see .releaserc.json): `fix:` ->
+# patch, `feat:` -> minor, a `BREAKING CHANGE:` footer (or `!` after the
+# type) -> major. Commits that don't match any of those (docs:, chore:,
+# refactor:, ...) don't bump the version, and if a push to main contains
+# none of the former, no release is created and the build job is
+# skipped -- "latest" only moves when a real change lands.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      published: ${{ steps.semrel.outputs.new_release_published }}
+      version: ${{ steps.semrel.outputs.new_release_version }}
+      major: ${{ steps.semrel.outputs.new_release_major_version }}
+      minor: ${{ steps.semrel.outputs.new_release_minor_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Release
+        id: semrel
+        uses: cycjimmy/semantic-release-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: version
+    if: needs.version.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: user-service
+            context: .
+            file: container/user-service/Containerfile
+          - name: mail-service
+            context: ./container/mail
+            file: container/mail/Containerfile
+          - name: chat-service
+            context: .
+            file: container/chat-service/Containerfile
+          - name: cron-service
+            context: ./container/cron
+            file: container/cron/Containerfile
+          - name: user
+            context: ./container/user
+            file: container/user/Containerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/larsks/unixbbs-${{ matrix.name }}:latest
+            ghcr.io/larsks/unixbbs-${{ matrix.name }}:${{ needs.version.outputs.version }}
+            ghcr.io/larsks/unixbbs-${{ matrix.name }}:${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }}
+            ghcr.io/larsks/unixbbs-${{ matrix.name }}:${{ needs.version.outputs.major }}

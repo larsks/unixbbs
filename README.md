@@ -14,6 +14,24 @@ To build everything, run the `build-all.sh` script:
 
     sh build-all.sh
 
+Building locally (particularly on a Raspberry Pi) is resource intensive.
+Pre-built multi-arch (amd64/arm64) images are published automatically to
+`ghcr.io/larsks` -- see `.github/workflows/build-images.yml`. To use them
+instead of building locally, `docker compose pull` in place of
+`docker compose build` (each service in `compose.yaml` declares both an
+`image:` and a `build:`, so either works); see `.env.example` for pinning
+a specific `TAG` instead of always tracking `latest`.
+
+Publishing runs on every push to `main` and versions releases
+automatically, via [semantic-release](https://github.com/semantic-release/semantic-release)
+(config in `.releaserc.json`), from [Conventional Commits](https://www.conventionalcommits.org/)
+commit messages (`fix:` -> patch, `feat:` -> minor, `BREAKING CHANGE:` ->
+major). Commits that don't follow that convention don't bump the version
+or publish new images. Each release is published under four tags --
+`latest`, `x.y.z`, `x.y`, and `x` -- so you can float on the latest
+release, a minor line, or a major line instead of pinning an exact
+version.
+
 ## Running
 
 
