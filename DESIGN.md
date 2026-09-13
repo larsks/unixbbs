@@ -808,6 +808,42 @@ not a blocker.)
    name anyway. Giving the container an already-dotted hostname up front
    skips the lookup entirely: confirmed by testing, `mail -N` drops from
    5.00s to instant with no other change.
+
+   The dotted hostname only fixes the mailbox-*check* path, though —
+   confirmed by `strace`, `mail -N` now issues zero DNS queries, but
+   `mail -s subject recipient` (actually *sending*) still calls
+   `getaddrinfo("bbs.local", ...)` from a separate mailutils code path
+   (building the message's envelope/`From:` domain) and blocks the same
+   ~5s regardless of the dot, since `/etc/hosts` has no entry for
+   `bbs.local` to satisfy musl's resolver before it falls through to
+   the network — musl always consults `/etc/hosts` first regardless of
+   `/etc/nsswitch.conf` (which it doesn't implement at all — see the
+   `hosts:` comment left in the image's own `nsswitch.conf`). The same
+   `getaddrinfo` machinery is what makes *any* unresolvable lookup a
+   user types (e.g. `ping google.com`) hang for ~5s too: musl's UDP
+   resolver still runs its full `poll()` wait against each configured
+   nameserver even when `sendto()` fails immediately with
+   `ENETUNREACH`, so a failed send doesn't short-circuit the timeout.
+
+   Two `docker run` flags close both gaps without touching the
+   entrypoint or the read-only `/etc` tmpfs (Docker applies them while
+   generating the container's `/etc/hosts`/`/etc/resolv.conf` bind
+   mounts at container-creation time, before `--read-only` locks them
+   down — confirmed by testing, appending to those files from inside
+   the running container fails with "Read-only file system" even
+   though `/etc` itself is a writable tmpfs):
+   - `--add-host bbs.local:127.0.1.1` — gives musl's resolver a local
+     `/etc/hosts` answer for the container's own hostname, so the
+     send-path lookup never reaches the network at all. Confirmed by
+     testing: `mail -s` drops from 5.03s to instant.
+   - `--dns-option timeout:1 --dns-option attempts:1` — tunes musl's
+     resolver options (parsed from `/etc/resolv.conf`'s `options` line,
+     independent of `/etc/hosts` and any actual nameserver) down from
+     the default 2 attempts × 2.5s to 1 attempt × 1s. This can't make
+     an arbitrary external hostname resolve — there's still no
+     network — but it bounds the unavoidable failure to ~1s instead of
+     ~5s. Confirmed by testing: `ping google.com` drops from 5.01s to
+     1.00s.
 1. Read `$SRC_CALLSIGN`. Normalize: uppercase, strip a trailing AX.25 SSID
    (`-N`/`-NN`, e.g. `N0CALL-5` → `N0CALL`) — the SSID identifies a
    station/session, not a distinct BBS user.

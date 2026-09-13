@@ -20,6 +20,8 @@ docker run --rm -it \
   --pids-limit=64 \
   --memory=64m \
   --hostname bbs.local \
+  --add-host bbs.local:127.0.1.1 \
+  --dns-option timeout:1 --dns-option attempts:1 \
   -v unixbbs-data:/bbs-data \
   -v unixbbs-sock:/bbs-sock \
   -v unixbbs-mailsock:/bbs-sock/mail \
