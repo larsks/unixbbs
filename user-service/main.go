@@ -28,10 +28,15 @@ func main() {
 	}
 	defer st.Close()
 
+	provisioner := provision.New(*dataDir)
+	if err := provisioner.EnsureNewsDir(); err != nil {
+		log.Fatalf("ensure news dir: %v", err)
+	}
+
 	handlers := &api.Handlers{
 		Store:       st,
 		Presence:    presence.New(),
-		Provisioner: provision.New(*dataDir),
+		Provisioner: provisioner,
 	}
 
 	writeListener, err := listenUnix(*writeSockPath, 0o700)
@@ -80,3 +85,5 @@ func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 
 	return l, nil
 }
+
+// touch Sun Sep 13 08:25:53 AM EDT 2026

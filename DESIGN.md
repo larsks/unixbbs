@@ -87,9 +87,23 @@ which places the real listener at
 to exist *before* `master` starts (it does not create them for you):
 
 ```sh
-install -d -o postfix -g postdrop -m 2710 /var/spool/postfix/public/bbssock
+install -d -o postfix -g postdrop -m 2711 /var/spool/postfix/public/bbssock
 install -d -o root    -g root     -m 0755 /var/spool/postfix/pid/unix.bbssock
 ```
+
+`2711`, not Postfix's usual `2710` "public" convention: `bbssock/mailsock`
+is `private = n` in `master.cf`, so `smtpd` itself makes the *socket*
+world-connectable (mode `0666`, confirmed by testing) — but the
+directory still needs the extra `+x` (search/traversal) for "other",
+since every ephemeral user container connects as a throwaway,
+dynamically-provisioned uid/gid with no relation to `postfix`/`postdrop`.
+Confirmed by testing: with the stock `2710`, connecting from inside a
+user container fails with a plain `Permission denied` on `connect(2)` —
+this reproduced identically with and without `--cap-drop=ALL`/any
+`--cap-add`, ruling out a capabilities explanation and pointing at DAC
+directory-search permission instead. The extra bit only grants
+traversal, not write, so creating/removing entries under it still
+requires being `postfix` or in the `postdrop` group.
 
 The second directory is the one that's easy to miss and cost the most
 debugging time: `master` also derives a per-instance PID/lock file path
@@ -118,20 +132,18 @@ which also holds Postfix's own internal sockets (`pickup`, `qmgr`,
 business seeing.
 
 ```
-persistent volumes/dirs used purely for IPC (not data):
-  $DATADIR/run/user-write.sock           <- user-service, root-only (0700)
-  $DATADIR/run/user-read.sock            <- user-service, world-connectable (0666)
-  $DATADIR/run/mail-public/mailsock      <- bind-mounted 1:1 onto
-                                             mail-service's own
-                                             /var/spool/postfix/public/bbssock/
-                                             so both sides see the same
-                                             directory (needed because
-                                             smtpd unlinks + recreates
-                                             the socket file on every
-                                             restart — bind-mounting the
-                                             *file* alone would silently
-                                             stop working after the
-                                             first restart)
+named volumes used purely for IPC (not data) -- see §3/§7 for the
+compose.yaml stack that owns these:
+  unixbbs-sock       <- mounted at /bbs-sock in user-service; holds
+                        user-write.sock (0700) and user-read.sock (0666)
+  unixbbs-mailsock   <- mounted at mail-service's own
+                        /var/spool/postfix/public/bbssock/, and at
+                        /bbs-sock/mail/ in every ephemeral container, so
+                        both sides see the same directory (needed
+                        because smtpd unlinks + recreates the socket
+                        file on every restart — bind-mounting the *file*
+                        alone would silently stop working after the
+                        first restart)
 ```
 
 ### 2.2 Outbound: no `unix:` SMTP relay — confirmed via docs, socat shim is load-bearing
@@ -316,31 +328,77 @@ is unaffected by this choice; it was purely a mailbox-format question.
 
 ## 3. Data layout
 
+**Superseded**: an earlier pass at this design used a single host
+directory (`$DATADIR`, set in `.envrc`) bind-mounted into both core
+services, and that's how build-order steps 1–4 were actually tested.
+Once `user-service` and `mail-service` needed to run as a real,
+persistent stack rather than one-off `docker run` invocations for
+testing, that was replaced with `compose.yaml` at the repo root and
+three **named Docker volumes** instead of host directories — no code
+outside `compose.yaml` cares about the distinction (both services still
+just see `/bbs-data` and `/bbs-sock` inside their containers), but it
+removes the host-path bookkeeping and the repeated
+Docker-auto-vivifies-a-root-owned-host-directory footgun that host
+bind mounts kept causing during testing (see the confirmed-findings
+notes throughout this document). `.envrc`'s `DATADIR`/`UIDFILE`
+variables (the latter already dead — superseded by SQLite's own
+`AUTOINCREMENT` sequence, see below) have been removed accordingly.
+
 ```
-$DATADIR/
-  bbs.db                  # SQLite; users table. WAL mode.
-  bbs.db-wal / bbs.db-shm # WAL sidecar files (same directory)
-  run/
-    user.sock                  # user-service's HTTP listener
-    mail-public/mailsock       # bind-mounted onto mail-service's
-                                # /var/spool/postfix/public/bbssock/mailsock
-                                # (see §2.1 — must be the directory, not
-                                # just the socket file, bind-mounted)
+unixbbs-data                 # named volume, mounted at /bbs-data in
+                              # both user-service and mail-service
+  bbs.db                     # SQLite; users table. WAL mode.
+  bbs.db-wal / bbs.db-shm    # WAL sidecar files (same directory)
   mail/
-    <uid>/                  # Maildir (cur/new/tmp), mode 0700, owned by
-                             # <uid>:<uid> — see §4's mail-service section
-                             # for why Maildir over mbox
+    <uid>/                   # Maildir (cur/new/tmp), mode 0700, owned by
+                              # <uid>:<uid> — see §4's mail-service section
+                              # for why Maildir over mbox
   home/
-    <uid>/                  # persistent per-user home dir, mode 0700
-  bulletins/                # a Maildir (cur/new/tmp), owned root:root,
-                             # no group/other write bit -- see the
-                             # "Bulletins" subsection under §4
+    <uid>/                   # persistent per-user home dir, mode 0700
+  bulletins/                 # a Maildir (cur/new/tmp), owned root:root,
+                              # no group/other write bit -- see the
+                              # "Bulletins" subsection under §4
+
+unixbbs-sock                 # named volume, mounted at /bbs-sock in
+                              # user-service
+  user-write.sock             # root-only (0700)
+  user-read.sock               # world-connectable (0666)
+
+unixbbs-mailsock              # named volume, mounted at mail-service's
+                              # own /var/spool/postfix/public/bbssock/
+                              # (see §2.1)
+  mailsock
 ```
 
-`.envrc` already sets `DATADIR=data`; `UIDFILE=uid` is superseded by
-SQLite's own `AUTOINCREMENT` sequence (see below) and can be dropped —
-worth confirming that file isn't relied on by something else already in
-progress before removing it.
+Every ephemeral container mounts all three volumes by name (`docker run
+-v unixbbs-data:/bbs-data -v unixbbs-sock:/bbs-sock -v
+unixbbs-mailsock:/bbs-sock/mail ...`) — they're given explicit `name:`
+values in `compose.yaml` specifically so this works regardless of which
+directory the compose stack was brought up from (Compose's default
+`<project>_<name>` volume-name prefixing would otherwise make this
+depend on that). `mail/` and `home/` are mounted read-write into every
+ephemeral container even though most sessions only ever need their own
+uid's subdirectory — see §5 for why (whole-tree mounts, per-uid Unix
+permission bits for isolation) — this hasn't changed by moving to named
+volumes.
+
+**A real bug this surfaced, confirmed by testing against a genuinely
+fresh (empty) volume** — not just theoretical: `user-service`'s
+`provision.EnsureUserDirs` used to create a new user's Maildir with
+`os.MkdirAll(".../mail/<uid>", 0o700)` directly. `MkdirAll` applies its
+mode argument to *every* directory it has to create along the path, not
+just the leaf — so on a brand-new, empty volume where `mail/` and
+`home/` don't exist yet, they got created as a side effect with mode
+`0700 root:root`, which blocks traversal into the correctly-owned
+`0700` per-uid directory underneath for anyone but root. This never
+showed up during the earlier host-directory testing because those
+parent directories were always pre-created by hand (as the host user,
+with normal permissions) before `user-service` ever ran against them —
+a fresh named volume was the first time `mail/`/`home/` genuinely
+didn't exist yet at startup. Fixed by explicitly creating `mail/` and
+`home/` themselves with `0755` before creating the per-uid `0700`
+subdirectory; regression-tested in
+`internal/provision/provision_test.go`.
 
 ### Schema
 
@@ -688,9 +746,8 @@ not a blocker.)
 - `dash` as the provisioned account's login shell — plain, POSIX,
   line-oriented, well-behaved with no assumptions about terminal
   capabilities. No custom restricted-shell program; the container itself
-  (network=none, read-only rootfs, dropped capabilities, single
-  low-privilege UID, curated `PATH`) is the confinement mechanism, not
-  the shell.
+  (network=none, read-only rootfs, single low-privilege UID, curated
+  `PATH`) is the confinement mechanism, not the shell.
 - A `.profile` that prints a plain-text banner/menu line on login purely
   for UX (e.g. pointing out `mail` and `bulletins`) — cosmetic, not a
   security boundary.
@@ -703,6 +760,54 @@ not a blocker.)
 
 ### ENTRYPOINT sequence
 
+0. Restore `/etc` from a build-time snapshot (`RUN cp -a /etc /etc.orig`
+   in the Containerfile). Required because the container runs with
+   `--read-only` (§6), which makes the *entire* rootfs immutable,
+   including `/etc` — confirmed by testing: without further steps,
+   `groupadd`/`useradd` (step 5 below) fail outright with
+   `groupadd: /etc/group.18: Read-only file system`, since they need to
+   write `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/gshadow`, and
+   their lock/temp files on every session. The fix is `docker run
+   --tmpfs /etc`, which overrides just that path with an in-memory
+   writable filesystem — but a tmpfs mount starts **empty** on every
+   container start, wiping out everything the image's `apk add`/`COPY`
+   steps put there. The entrypoint's first action is therefore to
+   repopulate it from the preserved `/etc.orig` snapshot:
+   ```sh
+   for entry in /etc.orig/*; do
+       name=$(basename "$entry")
+       case "$name" in
+           hostname | hosts | resolv.conf) continue ;;
+       esac
+       cp -a "$entry" "/etc/$name"
+   done
+   ```
+   `hostname`/`hosts`/`resolv.conf` are skipped deliberately: Docker
+   always bind-mounts these three individually into every container —
+   confirmed by testing, even under `--network none` — so they already
+   exist as distinct mounts inside the otherwise-empty tmpfs, and `cp`
+   over them fails with `File exists`; Docker's own per-container values
+   are what's wanted here anyway, not the image's static originals.
+   `msmtp` (step 4) similarly needs a writable `/tmp` for its own
+   temporary file (confirmed by testing:
+   `msmtp: cannot create temporary file: Read-only file system` without
+   it) — `docker run --tmpfs /tmp` covers that; nothing needs restoring
+   there since nothing is baked into `/tmp` at build time.
+
+   Also required: `docker run --hostname bbs.local` (anything with a dot
+   works; this specific value matches `mail-service`'s own `myorigin`).
+   Without it, Docker's default hostname is just the short container ID
+   (e.g. `fe154e733e1e`) — and confirmed by testing, GNU Mailutils' `mail`
+   treats any dot-less hostname as not-yet-fully-qualified and tries to
+   canonicalize it via `getaddrinfo(..., AI_CANONNAME)` on **every
+   startup**, even for purely-local operations like checking for new
+   mail. Under `--network none` that lookup can't succeed (there's no
+   route to the real nameserver Docker still writes into
+   `/etc/resolv.conf` — see below), so it blocks for the full ~5s UDP
+   resolver timeout before giving up and falling back to the unqualified
+   name anyway. Giving the container an already-dotted hostname up front
+   skips the lookup entirely: confirmed by testing, `mail -N` drops from
+   5.00s to instant with no other change.
 1. Read `$SRC_CALLSIGN`. Normalize: uppercase, strip a trailing AX.25 SSID
    (`-N`/`-NN`, e.g. `N0CALL-5` → `N0CALL`) — the SSID identifies a
    station/session, not a distinct BBS user.
@@ -779,10 +884,24 @@ not a blocker.)
   deliberate choice, not a gap: it's the same model ordinary multi-user
   Unix systems have always used, and it's what lets mounts stay static
   and known before the UID is.
-- `--read-only` root filesystem, `--cap-drop=ALL`, and per-container
-  resource limits (`--memory`, `--pids-limit`) on every ephemeral
-  container — the shell being unrestricted makes these matter more, not
-  less, since the container boundary is now the *only* boundary.
+- `--read-only` root filesystem (with `--tmpfs /etc --tmpfs /tmp` carved
+  out — see §5's ENTRYPOINT sequence step 0 for why both are needed and
+  how `/etc` gets repopulated every session) and per-container resource
+  limits (`--memory`, `--pids-limit`) on every ephemeral container — the
+  shell being unrestricted makes these matter more, not less, since the
+  container boundary is now the *only* boundary.
+  `--cap-drop=ALL` was tried and abandoned: it broke `cp -a`'s
+  ownership-preserving copy in the `/etc` restore step (`chown()`
+  unconditionally needs `CAP_CHOWN`, dropped) and `su-exec`'s privilege
+  drop (`setuid()`/`setgid()`/`setgroups()` need `CAP_SETUID`/
+  `CAP_SETGID`, also dropped) — and adding those three capabilities back
+  didn't fix mail sending anyway, which turned out to be an unrelated
+  directory-permission gap on `mail-service`'s side (§2.1), not a
+  capability at all. Confirmed by testing: with that gap fixed, the full
+  flow (login, provisioning, mail send/read, `users`, `bulletins`) works
+  identically whether or not `--cap-drop=ALL` is present, so it was
+  dropped from the recommended command rather than kept with three
+  capabilities added back for no remaining benefit.
 - `mail-service` is the one container with the full `mail/` tree
   writable and `bbs.db` at all (read-only) — it's the trust boundary for
   both mail integrity and the user database.
@@ -817,6 +936,19 @@ not a blocker.)
 4. Bulletins: a root-owned, no-write-bit Maildir read via `mail -f`
    through a one-line `/usr/local/bin/bulletins` wrapper — see §4's
    "Bulletins" subsection.
+5. `compose.yaml`, managing `user-service` and `mail-service` (the two
+   persistent core services — the ephemeral container is explicitly out
+   of this stack, see §1) with the three named volumes from §3 in place
+   of the host directories build-order steps 1–4 were tested against.
+   Required a `container/user-service/Containerfile` that didn't exist
+   before (a Go-build stage plus a plain `alpine:3` runtime stage,
+   `user-service` running as root by necessity — see §5's provisioning
+   step). Verified end-to-end against the real compose stack: `docker
+   compose up`, then an ephemeral container using the three named
+   volumes by name (as the external AX.25 spawner would) for login,
+   send, read, and `bulletins`, all passing — this is also what
+   surfaced the `EnsureUserDirs` parent-directory-mode bug documented in
+   §3.
 
 ## 8. Open items to confirm during implementation
 

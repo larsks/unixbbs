@@ -29,8 +29,18 @@ RUN ln -sf /usr/bin/msmtp /usr/sbin/sendmail
 COPY msmtprc /etc/msmtprc
 COPY profile /etc/bbs-profile
 COPY users.sh /usr/local/bin/users
-COPY bulletins.sh /usr/local/bin/bulletins
+COPY news.sh /usr/local/bin/news
 COPY container-entrypoint.sh /container-entrypoint.sh
-RUN chmod 755 /container-entrypoint.sh /usr/local/bin/users /usr/local/bin/bulletins
+RUN chmod 755 /container-entrypoint.sh /usr/local/bin/users /usr/local/bin/news
+
+# The container runs with `--read-only` (DESIGN.md §6), so /etc needs to
+# be a writable tmpfs at `docker run` time (`--tmpfs /etc`) for
+# groupadd/useradd to update /etc/passwd, /etc/group, /etc/shadow,
+# /etc/gshadow, and their lock/temp files every session (confirmed by
+# testing: without this, groupadd fails outright with "Read-only file
+# system"). A tmpfs mount starts empty, wiping out everything apk/COPY
+# put in /etc above -- this snapshot is what the entrypoint restores
+# from on every container start, before provisioning the account.
+RUN cp -a /etc /etc.orig
 
 ENTRYPOINT ["/container-entrypoint.sh"]

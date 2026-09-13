@@ -1,0 +1,56 @@
+# Manages the two persistent core services (see DESIGN.md §1/§7). The
+# ephemeral, per-connection user container is deliberately NOT part of
+# this stack -- it's spawned per-connection by the external AX.25
+# ingress process (out of scope here, see DESIGN.md's goals/non-goals),
+# using `docker run` against the same three named volumes declared
+# below.
+#
+# The volumes are given explicit `name:` values rather than left to
+# Compose's default `<project>_<name>` prefixing specifically so that
+# external `docker run` invocations (spawning ephemeral containers) can
+# reference them by a name that doesn't depend on which directory this
+# stack happens to be brought up from.
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: container/user-service/Containerfile
+    command:
+      - -db=/bbs-data/bbs.db
+      - -data-dir=/bbs-data
+      - -write-socket=/bbs-sock/user-write.sock
+      - -read-socket=/bbs-sock/user-read.sock
+    volumes:
+      - bbs-data:/bbs-data
+      - bbs-sock:/bbs-sock
+    restart: unless-stopped
+
+  mail-service:
+    build:
+      context: ./container/mail
+      dockerfile: Containerfile
+    # The whole bbs-data volume is mounted read-write here, even though
+    # mail-service only ever needs to write mail/ and only ever reads
+    # bbs.db. A per-subpath read-only mount for bbs.db was tried and
+    # rejected: Docker's volume-subpath mounts don't auto-create their
+    # target (confirmed by testing), so mounting a read-only subpath at
+    # /bbs-data/bbs.db would race user-service's own lazy creation of
+    # that file on first-ever startup -- whichever container wins the
+    # race, the other fails outright rather than degrading gracefully.
+    # "bbs.db is read-only from mail-service's side" (DESIGN.md §4/§6)
+    # is therefore a software invariant (its Postfix config only ever
+    # issues SELECT queries) rather than a mount-level guarantee.
+    volumes:
+      - bbs-data:/bbs-data
+      - bbs-mailsock:/var/spool/postfix/public/bbssock
+    depends_on:
+      - user-service
+    restart: unless-stopped
+
+volumes:
+  bbs-data:
+    name: unixbbs-data
+  bbs-sock:
+    name: unixbbs-sock
+  bbs-mailsock:
+    name: unixbbs-mailsock

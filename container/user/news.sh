@@ -9,4 +9,4 @@
 # hits EACCES on the write and gracefully falls back to a read-only
 # open on its own, which also means it never marks a bulletin "already
 # read" -- every session sees the same, unmutated bulletin list.
-exec mail -f /bbs-data/bulletins
+exec mail -f /bbs-data/news

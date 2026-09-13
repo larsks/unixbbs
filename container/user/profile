@@ -4,8 +4,8 @@
 cat <<'EOF'
 Welcome to the BBS.
 
-  mail       -- read and send mail (unqualified callsigns as recipients)
-  bulletins  -- read bulletins (see /bbs-data/bulletins)
-  users      -- list known/online users
+  mail  -- read and send mail
+  news  -- read news
+  users -- list known/online users
 
 EOF
