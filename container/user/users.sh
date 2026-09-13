@@ -9,16 +9,16 @@ set -e
 READ_SOCK=/bbs-sock/user-read.sock
 
 case "$1" in
-    -o | --online)
-        curl -s --unix-socket "$READ_SOCK" http://localhost/users/online \
-            | jq -r '.[].callsign'
-        ;;
-    "")
-        curl -s --unix-socket "$READ_SOCK" http://localhost/users/list \
-            | jq -r '.[].callsign'
-        ;;
-    *)
-        echo "usage: users [-o|--online]" >&2
-        exit 1
-        ;;
+-o | --online)
+  curl -s --unix-socket "$READ_SOCK" http://localhost/users/online |
+    jq -r '.[].callsign' | sort -u
+  ;;
+"")
+  curl -s --unix-socket "$READ_SOCK" http://localhost/users/list |
+    jq -r '.[].callsign' | sort -u
+  ;;
+*)
+  echo "usage: users [-o|--online]" >&2
+  exit 1
+  ;;
 esac
