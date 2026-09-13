@@ -25,4 +25,4 @@ docker run --rm -it \
   -v unixbbs-mailsock:/bbs-sock/mail \
   -v unixbbs-chatsock:/bbs-sock/chat \
   -e SRC_CALLSIGN \
-  unixbbs-user
+  "ghcr.io/larsks/unixbbs-user:${TAG:-latest}"
