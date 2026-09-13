@@ -1,14 +1,3 @@
-FROM docker.io/alpine:3 AS build
-
-RUN apk add \
-  git \
-  alpine-sdk \
-  meson
-
-RUN git clone https://github.com/larsks/safecat /tmp/safecat
-WORKDIR /tmp/safecat
-RUN meson setup build && meson compile -C build
-
 FROM docker.io/alpine:3
 
 # postfix-sqlite is required separately from postfix: Alpine splits
@@ -22,34 +11,11 @@ RUN apk add \
   bash \
   sqlite
 
-# safecat (see deliver-shared) implements D.J. Bernstein's maildir-safe-
-# delivery algorithm and, critically, creates files at mode 0644 -- unlike
-# Postfix's virtual(8) agent, which hardcodes 0600 with no override. Same
-# tool, same vendoring pattern as container/cron/Containerfile.
-COPY --from=build /tmp/safecat/build/safecat /usr/local/bin
-
-# Reserved system account for the 'shared' read-only mailbox
-# pseudo-recipient (see virtual-shared-transport/deliver-shared).
-# Deliberately a plain Alpine system user, not a row in bbs.db/`users` --
-# this is fixed configuration, independent of the user database (see
-# DESIGN.md). uid/gid 5000 sits below real users' auto-incrementing uid
-# range (10000+, see virtual_minimum_uid below) so it can't collide with
-# one. -D/-H: no password, no home directory -- this account only ever
-# runs the pipe(8) transport below, never logs in.
-RUN addgroup -g 5000 shared && \
-    adduser -D -H -u 5000 -G shared shared
-
-COPY sqlite-virtual-mailbox.cf sqlite-virtual-uid.cf sqlite-virtual-gid.cf \
-     virtual-shared-mailbox virtual-shared-transport /etc/postfix/
+COPY sqlite-virtual-mailbox.cf sqlite-virtual-uid.cf sqlite-virtual-gid.cf /etc/postfix/
 RUN chown root:postfix /etc/postfix/sqlite-virtual-mailbox.cf \
-        /etc/postfix/sqlite-virtual-uid.cf /etc/postfix/sqlite-virtual-gid.cf \
-        /etc/postfix/virtual-shared-mailbox /etc/postfix/virtual-shared-transport && \
+        /etc/postfix/sqlite-virtual-uid.cf /etc/postfix/sqlite-virtual-gid.cf && \
     chmod 640 /etc/postfix/sqlite-virtual-mailbox.cf \
-        /etc/postfix/sqlite-virtual-uid.cf /etc/postfix/sqlite-virtual-gid.cf \
-        /etc/postfix/virtual-shared-mailbox /etc/postfix/virtual-shared-transport
-
-COPY deliver-shared /usr/local/bin/deliver-shared
-RUN chmod 755 /usr/local/bin/deliver-shared
+        /etc/postfix/sqlite-virtual-uid.cf /etc/postfix/sqlite-virtual-gid.cf
 
 # myorigin is what makes an unqualified `RCPT TO:<callsign>` resolve at
 # all (DESIGN.md §2.3). virtual_uid_maps/virtual_gid_maps are genuine
@@ -61,37 +27,17 @@ RUN chmod 755 /usr/local/bin/deliver-shared
 # maillog_file, so there's no on-disk log file to rotate or cap. alias_maps
 # is cleared to silence a harmless "no aliases db" warning -- this design
 # has no local aliasing, only virtual mailboxes.
-#
-# The 'shared' read-only mailbox pseudo-recipient (see
-# virtual-shared-mailbox/virtual-shared-transport/deliver-shared) is
-# resolved by a static texthash: map layered ahead of the sqlite per-user
-# map in virtual_mailbox_maps -- Postfix tries each listed table in order
-# and stops at the first match -- purely so RCPT TO:<shared> is accepted;
-# 'shared' never touches bbs.db/the users table at all, deliberately kept
-# as fixed configuration independent of the user database, not a row in
-# it. texthash: needs no postmap step and no external DB library
-# (confirmed available in this build via `postconf -m`, unlike
-# hash:/lmdb:, see the postfix-sqlite comment above). transport_maps sends
-# 'shared' mail to the custom pipe(8) transport appended to master.cf
-# below instead of virtual_transport, so virtual_uid_maps/virtual_gid_maps
-# and virtual_minimum_uid are untouched -- virtual(8) never sees this
-# recipient.
 RUN postconf -e \
         myorigin=bbs.local \
         virtual_mailbox_domains=bbs.local \
         virtual_mailbox_base=/bbs-data/mail \
-        virtual_mailbox_maps=texthash:/etc/postfix/virtual-shared-mailbox,sqlite:/etc/postfix/sqlite-virtual-mailbox.cf \
+        virtual_mailbox_maps=sqlite:/etc/postfix/sqlite-virtual-mailbox.cf \
         virtual_uid_maps=sqlite:/etc/postfix/sqlite-virtual-uid.cf \
         virtual_gid_maps=sqlite:/etc/postfix/sqlite-virtual-gid.cf \
         virtual_minimum_uid=10000 \
         virtual_transport=virtual \
-        transport_maps=texthash:/etc/postfix/virtual-shared-transport \
         alias_maps= \
-    && echo 'bbssock/mailsock unix  n  -  n  -  -  smtpd' >> /etc/postfix/master.cf \
-    && printf '%s\n' \
-        'shared    unix  -       n       n       -       -       pipe' \
-        '  flags=RX user=shared argv=/usr/local/bin/deliver-shared' \
-        >> /etc/postfix/master.cf
+    && echo 'bbssock/mailsock unix  n  -  n  -  -  smtpd' >> /etc/postfix/master.cf
 
 COPY container-entrypoint.sh /container-entrypoint.sh
 RUN chmod 755 /container-entrypoint.sh
