@@ -4,7 +4,12 @@ FROM docker.io/alpine:3
 # map-type support into subpackages, and the base postfix package has no
 # `hash:`/`lmdb:` or `sqlite:` support built in (confirmed: no Berkeley DB
 # linked in at all). See DESIGN.md §4.
-RUN apk add --no-cache postfix postfix-sqlite
+RUN apk add \
+  postfix \
+  postfix-sqlite \
+  curl \
+  bash \
+  sqlite
 
 COPY sqlite-virtual-mailbox.cf sqlite-virtual-uid.cf sqlite-virtual-gid.cf /etc/postfix/
 RUN chown root:postfix /etc/postfix/sqlite-virtual-mailbox.cf \
