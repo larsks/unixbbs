@@ -15,6 +15,10 @@ services:
     build:
       context: .
       dockerfile: container/user-service/Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
+
     command:
       - -db=/bbs-data/bbs.db
       - -data-dir=/bbs-data
@@ -29,6 +33,9 @@ services:
     build:
       context: ./container/mail
       dockerfile: Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
     # The whole bbs-data volume is mounted read-write here, even though
     # mail-service only ever needs to write mail/ and only ever reads
     # bbs.db. A per-subpath read-only mount for bbs.db was tried and
@@ -51,6 +58,9 @@ services:
     build:
       context: .
       dockerfile: container/chat-service/Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
     command:
       - -db=/bbs-data/bbs.db
       - -socket=/bbs-sock/chat.sock
@@ -71,6 +81,9 @@ services:
     build:
       context: ./container/cron
       dockerfile: Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
     volumes:
       - bbs-data:/bbs-data
       - bbs-mailsock:/var/spool/postfix/public/bbssock
