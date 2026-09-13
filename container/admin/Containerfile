@@ -17,7 +17,8 @@ RUN apk add \
   bash \
   vim \
   mailutils \
-  curl
+  curl \
+  dash
 
 COPY update-news.sh /usr/local/bin/update-news
 RUN chmod 755 /usr/local/bin/*
