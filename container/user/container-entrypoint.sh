@@ -94,14 +94,6 @@ useradd -u "$USERID" -g "$USERID" -d "/bbs-data/home/$USERID" -M \
 # 6. Environment for the session.
 export MAIL="/bbs-data/mail/$USERID/"
 export HOME="/bbs-data/home/$USERID"
-export TERM=dumb
-export LESS=-dE
-export PAGER=less
-
-# Prevent annoying double-echo when using character-buffered
-# clients.
-echo "Disabling remote echo ('stty echo' to re-enable)"
-stty -echo
 
 # 7. Exec as the provisioned account into dash. This process never had
 #    user-write.sock open (step 3 ran in a separate backgrounded
