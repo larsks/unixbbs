@@ -1,0 +1,7 @@
+To see today's weather forecast for Boston:
+
+    weather
+
+To see the forecast for the week:
+
+    weather --long
