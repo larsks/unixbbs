@@ -1,7 +1,27 @@
 #!/bin/bash
 
 : "${BBS_DISABLE_ECHO:=1}"
-: "${BBS_NETWORK:=none}"
+: "${BBS_DISABLE_NETWORK:=1}"
+
+while getopts c:l ch; do
+  case $ch in
+  c)
+    SRC_CALLSIGN=$OPTARG
+    ;;
+  l)
+    BBS_DISABLE_ECHO=0
+    BBS_DISABLE_NETWORK=0
+    ;;
+
+  \?) exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+docker_args=()
+if ((BBS_DISABLE_NETWORK)); then
+  docker_args+=(--network none)
+fi
 
 if [[ -z "$SRC_CALLSIGN" ]]; then
   echo "ERROR: unable to determine callsign" >&2
@@ -16,7 +36,6 @@ fi
 
 docker run --rm -it \
   --name "$container_name" \
-  --network "$BBS_NETWORK" \
   --read-only \
   --tmpfs /etc \
   --tmpfs /tmp \
@@ -29,6 +48,7 @@ docker run --rm -it \
   -v unixbbs-sock:/bbs-sock \
   -v unixbbs-mailsock:/bbs-sock/mail \
   -v unixbbs-chatsock:/bbs-sock/chat \
-  -e SRC_CALLSIGN \
+  -e SRC_CALLSIGN="$SRC_CALLSIGN" \
   -e BBS_DISABLE_ECHO="${BBS_DISABLE_ECHO}" \
+  "${docker_args[@]}" \
   "ghcr.io/larsks/unixbbs-user:${TAG:-latest}"

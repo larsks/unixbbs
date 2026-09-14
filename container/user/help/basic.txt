@@ -1,0 +1,27 @@
+This BBS includes a CBM (Commodore) BASIC interpreter.
+
+To start the interactive interpreter:
+
+    cbmbasic
+
+To execute BASIC code in a text file:
+
+    cbmbasic myfile.bas
+
+To exit the interpreter:
+
+    QUIT
+
+Example program:
+
+    10 GOSUB 100
+    20 INPUT "WHAT IS YOUR NAME? "; A$
+    30 PRINT "HELLO "; A$
+    40 GOSUB 100
+    50 END
+
+    100 FOR X = 1 TO 40
+    110 PRINT "=";
+    120 NEXT X
+    130 PRINT
+    140 RETURN

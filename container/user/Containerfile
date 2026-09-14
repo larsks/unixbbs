@@ -24,6 +24,8 @@ RUN apk add --no-cache \
     ed \
     tzdata
 
+COPY --from=ghcr.io/larsks/cbmbasic:devel /usr/local/bin/cbmbasic /usr/local/bin/
+
 # Alpine has no update-alternatives mechanism, so installing msmtp does
 # not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
 # sendmail stub applet, which mailutils' `mail` invokes and which
