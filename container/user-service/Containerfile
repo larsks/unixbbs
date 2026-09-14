@@ -11,14 +11,9 @@ ARG GOMAXPROCS
 # fine here -- no C toolchain needed in either stage.
 RUN CGO_ENABLED=0 go build -o /out/user-service .
 
-FROM docker.io/alpine:3
+FROM base
 
 COPY --from=build /out/user-service /usr/local/bin/user-service
-
-RUN apk add \
-  curl \
-  bash \
-  sqlite
 
 # user-service must run as root (the default here, no USER directive):
 # provisioning a user's first login chowns mail/<uid> and home/<uid> to

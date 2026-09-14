@@ -7,20 +7,26 @@ design.
 
 There are several images involved:
 
-- Images for static services start via `compose.yaml`
+- Images for static services run via `compose.yaml`, and build via
+  `build.yaml` (build configuration -- including a shared `base` image
+  the others build from -- is kept in a separate file so that plain
+  `docker compose up`/`pull` never has to know about it; see
+  `compose.yaml`'s header comment)
 - Image used for ephemeral user containers
 
 To build everything, run the `build-all.sh` script:
 
     sh build-all.sh
 
+which runs `docker compose -f build.yaml build`, then a plain `docker
+build` for the ephemeral user container.
+
 Building locally (particularly on a Raspberry Pi) is resource intensive.
 Pre-built multi-arch (amd64/arm64) images are published automatically to
 `ghcr.io/larsks` -- see `.github/workflows/build-images.yml`. To use them
-instead of building locally, `docker compose pull` in place of
-`docker compose build` (each service in `compose.yaml` declares both an
-`image:` and a `build:`, so either works); see `.env.example` for pinning
-a specific `TAG` instead of always tracking `latest`.
+instead of building locally, run `docker compose pull` (compose.yaml
+declares an `image:` for each service); see `.env.example` for pinning a
+specific `TAG` instead of always tracking `latest`.
 
 Publishing runs on every push to `main` and versions releases
 automatically, via [semantic-release](https://github.com/semantic-release/semantic-release)

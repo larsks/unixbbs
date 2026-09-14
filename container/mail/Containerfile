@@ -1,4 +1,4 @@
-FROM docker.io/alpine:3
+FROM base
 
 # postfix-sqlite is required separately from postfix: Alpine splits
 # map-type support into subpackages, and the base postfix package has no
@@ -6,10 +6,7 @@ FROM docker.io/alpine:3
 # linked in at all). See DESIGN.md §4.
 RUN apk add \
   postfix \
-  postfix-sqlite \
-  curl \
-  bash \
-  sqlite
+  postfix-sqlite
 
 COPY sqlite-virtual-mailbox.cf sqlite-virtual-uid.cf sqlite-virtual-gid.cf /etc/postfix/
 RUN chown root:postfix /etc/postfix/sqlite-virtual-mailbox.cf \

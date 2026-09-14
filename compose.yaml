@@ -11,26 +11,26 @@
 # reference them by a name that doesn't depend on which directory this
 # stack happens to be brought up from.
 #
-# Each service declares both `image:` and `build:`. This lets Compose
-# switch between local builds and pre-built images from ghcr.io/larsks
-# without editing this file:
-#   - `docker compose up`          uses/pulls the `image:` (fast, no
-#                                   local build; what a Pi should do)
-#   - `docker compose build`, or
-#     `docker compose up --build`  builds from source and tags the
-#                                   result with that same `image:` name
+# Each service declares only `image:` here, not `build:`. Build
+# configuration -- including the shared `base` image these services are
+# built from (container/base/Containerfile) -- lives in build.yaml
+# instead, deliberately kept out of this file: build.yaml's `base`
+# service is wired into the others via `additional_contexts`, and if
+# that wiring were declared here, plain `docker compose up`/`pull`
+# would fail outright (Compose validates `additional_contexts:
+# service:base` even for commands that never touch `base`) unless
+# `base` were also brought up as a real, useless running container.
+#   - `docker compose up`                    uses/pulls the `image:`
+#                                             (fast, no local build;
+#                                             what a Pi should do)
+#   - `docker compose -f build.yaml build`   builds from source and
+#                                             tags the result with that
+#                                             same `image:` name
 # `TAG` selects which published version to pull (see .env.example);
 # it defaults to `latest`.
 services:
   user-service:
     image: ghcr.io/larsks/unixbbs-user-service:${TAG:-latest}
-    build:
-      context: .
-      dockerfile: container/user-service/Containerfile
-      args:
-        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
-        - GOMAXPROCS=${GOMAXPROCS:-}
-
     command:
       - -db=/bbs-data/bbs.db
       - -data-dir=/bbs-data
@@ -43,12 +43,6 @@ services:
 
   mail-service:
     image: ghcr.io/larsks/unixbbs-mail-service:${TAG:-latest}
-    build:
-      context: ./container/mail
-      dockerfile: Containerfile
-      args:
-        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
-        - GOMAXPROCS=${GOMAXPROCS:-}
     # The whole bbs-data volume is mounted read-write here, even though
     # mail-service only ever needs to write mail/ and only ever reads
     # bbs.db. A per-subpath read-only mount for bbs.db was tried and
@@ -69,12 +63,6 @@ services:
 
   chat-service:
     image: ghcr.io/larsks/unixbbs-chat-service:${TAG:-latest}
-    build:
-      context: .
-      dockerfile: container/chat-service/Containerfile
-      args:
-        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
-        - GOMAXPROCS=${GOMAXPROCS:-}
     command:
       - -db=/bbs-data/bbs.db
       - -socket=/bbs-sock/chat.sock
@@ -93,12 +81,6 @@ services:
 
   cron-service:
     image: ghcr.io/larsks/unixbbs-cron-service:${TAG:-latest}
-    build:
-      context: ./container/cron
-      dockerfile: Containerfile
-      args:
-        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
-        - GOMAXPROCS=${GOMAXPROCS:-}
     volumes:
       - bbs-data:/bbs-data
       - bbs-mailsock:/var/spool/postfix/public/bbssock

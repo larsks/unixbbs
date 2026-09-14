@@ -11,5 +11,5 @@ if grep -q 'Raspberry Pi' /proc/cpuinfo; then
   compose_build_args=(--parallel=false)
 fi
 
-docker compose "${compose_args[@]}" build "${compose_build_args[@]}" &&
+docker compose -f build.yaml "${compose_args[@]}" build "${compose_build_args[@]}" &&
   docker build -t unixbbs-user -f container/user/Containerfile container/user

@@ -1,0 +1,61 @@
+# Build-only configuration, kept separate from compose.yaml (see its
+# header comment). Run with `docker compose -f build.yaml build`; run
+# the actual stack with plain `docker compose up`, which reads
+# compose.yaml and never sees this file or the `base` service.
+#
+# `base` (container/base/Containerfile) is a shared runtime image the
+# other services build FROM, wired in via `additional_contexts` so
+# BuildKit builds it once per `docker compose -f build.yaml build`
+# invocation and reuses it for every consumer, rather than each service
+# repeating its own `apk add`. container/user (the ephemeral
+# per-connection image, built separately via plain `docker build` in
+# build-all.sh) intentionally does not share this base.
+services:
+  base:
+    build:
+      context: .
+      dockerfile: container/base/Containerfile
+
+  user-service:
+    image: ghcr.io/larsks/unixbbs-user-service:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: container/user-service/Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
+      additional_contexts:
+        base: service:base
+
+  mail-service:
+    image: ghcr.io/larsks/unixbbs-mail-service:${TAG:-latest}
+    build:
+      context: ./container/mail
+      dockerfile: Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
+      additional_contexts:
+        base: service:base
+
+  chat-service:
+    image: ghcr.io/larsks/unixbbs-chat-service:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: container/chat-service/Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
+      additional_contexts:
+        base: service:base
+
+  cron-service:
+    image: ghcr.io/larsks/unixbbs-cron-service:${TAG:-latest}
+    build:
+      context: ./container/cron
+      dockerfile: Containerfile
+      args:
+        # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
+        - GOMAXPROCS=${GOMAXPROCS:-}
+      additional_contexts:
+        base: service:base

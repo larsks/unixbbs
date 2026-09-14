@@ -1,0 +1,9 @@
+FROM docker.io/alpine:3
+
+RUN apk add \
+  bash \
+  sqlite \
+  curl \
+  git \
+  jq \
+  openvi

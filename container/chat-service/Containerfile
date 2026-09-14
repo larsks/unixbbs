@@ -11,7 +11,7 @@ COPY chat-service/ ./
 # fine here -- no C toolchain needed in either stage.
 RUN CGO_ENABLED=0 go build -o /out/chat-service .
 
-FROM docker.io/alpine:3
+FROM base
 
 COPY --from=build /out/chat-service /usr/local/bin/chat-service
 
