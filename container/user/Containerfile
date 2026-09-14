@@ -45,16 +45,9 @@ RUN ln -sf /usr/bin/msmtp /usr/sbin/sendmail
 RUN ln -sf /usr/bin/oex /usr/bin/ex
 
 COPY syslesskey /etc/syslesskey
-COPY mail.rc /etc/mail.rc
-COPY msmtprc /etc/msmtprc
-COPY profile /etc/bbs-profile
-COPY users.sh /usr/local/bin/users
-COPY news.sh /usr/local/bin/news
-COPY chat.sh /usr/local/bin/chat
-COPY help.sh /usr/local/bin/help
-COPY last.sh /usr/local/bin/last
-COPY weather.sh /usr/local/bin/weather
+COPY etc/* /etc/
 COPY helpfiles /helpfiles
+COPY commands/* /usr/local/bin/
 COPY container-entrypoint.sh /container-entrypoint.sh
 RUN chmod 755 /container-entrypoint.sh /usr/local/bin/*
 
