@@ -42,24 +42,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Builds and pushes the shared runtime base (container/base/Containerfile,
-  # see build.yaml's header comment for why it's shared) before the matrix
-  # below, so the other images can build FROM it. Referenced by the
-  # `build` job via its immutable digest, not a mutable tag -- a tag
-  # (even "latest") could be repointed between this job finishing and the
-  # matrix job's FROM resolving it, silently mixing a stale/different base
-  # into one image. `push: true` here (rather than `--load` into the
-  # runner's local docker daemon) is what makes that digest fetchable by
-  # `docker-image://` from the separate `build` job below: the two jobs
-  # don't share a docker daemon, only whatever's on ghcr.io.
-  build-base:
+  # Build all services from the same Compose build definition used locally.
+  # Buildx Bake reads build.yaml directly; the platform override stays here
+  # so local Compose builds continue to target the local architecture.
+  build:
     needs: version
     if: needs.version.outputs.published == 'true'
     runs-on: ubuntu-latest
     permissions:
       packages: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,61 +58,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/build-push-action@v6
-        id: build
-        with:
-          context: .
-          file: container/base/Containerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/larsks/unixbbs-base:latest
-            ghcr.io/larsks/unixbbs-base:${{ needs.version.outputs.version }}
-            ghcr.io/larsks/unixbbs-base:${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }}
-            ghcr.io/larsks/unixbbs-base:${{ needs.version.outputs.major }}
-
-  build:
-    needs: [version, build-base]
-    if: needs.version.outputs.published == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-    strategy:
-      matrix:
-        include:
-          - name: api-service
-            context: .
-            file: container/api-service/Containerfile
-            build-contexts: base=docker-image://ghcr.io/larsks/unixbbs-base@${{ needs['build-base'].outputs.digest }}
-          - name: mail-service
-            context: ./container/mail
-            file: container/mail/Containerfile
-            build-contexts: base=docker-image://ghcr.io/larsks/unixbbs-base@${{ needs['build-base'].outputs.digest }}
-          - name: chat-service
-            context: .
-            file: container/chat-service/Containerfile
-            build-contexts: base=docker-image://ghcr.io/larsks/unixbbs-base@${{ needs['build-base'].outputs.digest }}
-          - name: cron-service
-            context: ./container/cron
-            file: container/cron/Containerfile
-            build-contexts: base=docker-image://ghcr.io/larsks/unixbbs-base@${{ needs['build-base'].outputs.digest }}
-          - name: user
-            context: ./container/user
-            file: container/user/Containerfile
-            # Deliberately doesn't share `base` -- see build.yaml's header
-            # comment -- so no build-contexts entry here.
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
-
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-compose-action@v2
 
       - uses: docker/login-action@v3
         with:
@@ -129,15 +66,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.file }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-contexts: ${{ matrix['build-contexts'] }}
-          tags: |
-            ghcr.io/larsks/unixbbs-${{ matrix.name }}:latest
-            ghcr.io/larsks/unixbbs-${{ matrix.name }}:${{ needs.version.outputs.version }}
-            ghcr.io/larsks/unixbbs-${{ matrix.name }}:${{ needs.version.outputs.major }}.${{ needs.version.outputs.minor }}
-            ghcr.io/larsks/unixbbs-${{ matrix.name }}:${{ needs.version.outputs.major }}
+      - name: Build and push images
+        env:
+          TAG: ${{ needs.version.outputs.version }}
+        run: |
+          docker buildx bake \
+            -f build.yaml \
+            --set '*.platform=linux/amd64,linux/arm64' \
+            --set 'base.output=type=cacheonly' \
+            --push
+
+      - name: Publish release tag aliases
+        env:
+          TAG: ${{ needs.version.outputs.version }}
+          RELEASE_MAJOR: ${{ needs.version.outputs.major }}
+          RELEASE_MINOR: ${{ needs.version.outputs.minor }}
+        run: |
+          docker compose -f build.yaml config --images | while IFS= read -r source; do
+            case "${source}" in
+              ghcr.io/larsks/unixbbs-*:${TAG})
+                image="${source%:${TAG}}"
+                docker buildx imagetools create \
+                  --tag "${image}:latest" \
+                  --tag "${image}:${RELEASE_MAJOR}.${RELEASE_MINOR}" \
+                  --tag "${image}:${RELEASE_MAJOR}" \
+                  "${source}"
+                ;;
+            esac
+          done
