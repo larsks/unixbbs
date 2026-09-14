@@ -2,11 +2,11 @@ This BBS includes a CBM (Commodore) BASIC interpreter.
 
 To start the interactive interpreter:
 
-    cbmbasic
+    basic
 
 To execute BASIC code in a text file:
 
-    cbmbasic myfile.bas
+    basic myfile.bas
 
 To exit the interpreter:
 

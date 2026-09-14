@@ -1,3 +1,12 @@
+FROM docker.io/alpine:3 AS build
+
+RUN apk add alpine-sdk
+WORKDIR /build
+RUN git clone -b devel https://github.com/larsks/cbmbasic
+WORKDIR /build/cbmbasic
+RUN make CPPFLAGS=-DPLUGIN_ON_DEFAULT
+
+
 FROM docker.io/alpine:3
 
 # See DESIGN.md §5 "Image contents":
@@ -24,7 +33,7 @@ RUN apk add --no-cache \
     ed \
     tzdata
 
-COPY --from=ghcr.io/larsks/cbmbasic:devel /usr/local/bin/cbmbasic /usr/local/bin/
+COPY --from=build /build/cbmbasic/cbmbasic /usr/local/bin/basic
 
 # Alpine has no update-alternatives mechanism, so installing msmtp does
 # not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
