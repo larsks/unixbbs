@@ -50,8 +50,22 @@ docker compose up -d
 Connecting user containers can be spawned like this:
 
 ```sh
-SRC_CALLSIGN=N0CALL sh runuser.sh
+SRC_CALLSIGN=N0CALL bash runuser.sh
 ```
+
+If you were to use [agwwrap], you would wire things up like this if you have a local AGWPE endpoint at `127.0.0.1:8000`:
+
+```sh
+agwwrap -c MYBBS -- bash runuser.sh
+```
+
+Or with a remote AGWPE endpoint:
+
+```sh
+agwwrap -h remotehost:8010 -c MYBBS -- bash runuser.sh
+```
+
+[agwwrap]: https://github.com/larsks/agwtools
 
 ## License
 
