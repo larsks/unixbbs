@@ -1,6 +1,7 @@
 #!/bin/bash
 
 : "${BBS_DISABLE_ECHO:=1}"
+: "${BBS_NETWORK:=none}"
 
 if [[ -z "$SRC_CALLSIGN" ]]; then
   echo "ERROR: unable to determine callsign" >&2
@@ -15,7 +16,7 @@ fi
 
 docker run --rm -it \
   --name "$container_name" \
-  --network none \
+  --network "$BBS_NETWORK" \
   --read-only \
   --tmpfs /etc \
   --tmpfs /tmp \
