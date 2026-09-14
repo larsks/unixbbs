@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 
 	"unixbbs/api-service/internal/api"
+	"unixbbs/api-service/internal/exam"
 	"unixbbs/api-service/internal/presence"
 	"unixbbs/api-service/internal/provision"
 	"unixbbs/api-service/internal/store"
@@ -45,7 +47,13 @@ func main() {
 		log.Fatalf("ensure news dir: %v", err)
 	}
 
+	examiner := exam.NewExaminer(filepath.Join(*dataDir, "pools"))
+	if err := examiner.LoadQuestionPools(); err != nil {
+		log.Printf("failed to load exam questions")
+	}
+
 	handlers := &api.Handlers{
+		Examiner:         examiner,
 		Store:            st,
 		Presence:         presence.New(),
 		Provisioner:      provisioner,
@@ -115,5 +123,3 @@ func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 
 	return l, nil
 }
-
-// touch Sun Sep 13 08:25:53 AM EDT 2026

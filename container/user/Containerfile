@@ -31,7 +31,8 @@ RUN apk add --no-cache \
     less \
     openvi \
     ed \
-    tzdata
+    tzdata \
+    coreutils-fmt
 
 COPY --from=build /build/cbmbasic/cbmbasic /usr/local/bin/basic
 

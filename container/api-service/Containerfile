@@ -14,9 +14,11 @@ RUN CGO_ENABLED=0 go build -o /out/api-service .
 FROM base
 
 COPY --from=build /out/api-service /usr/local/bin/api-service
+COPY ./container/api-service/container-entrypoint.sh /container-entrypoint.sh
 
 # api-service must run as root (the default here, no USER directive):
 # provisioning a user's first login chowns mail/<uid> and home/<uid> to
 # an arbitrary uid, and only root can chown to a uid other than its own
 # (see DESIGN.md §5's provisioning step and internal/provision).
-ENTRYPOINT ["/usr/local/bin/api-service"]
+ENTRYPOINT ["bash", "/container-entrypoint.sh"]
+CMD ["/usr/local/bin/api-service"]

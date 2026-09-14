@@ -31,16 +31,18 @@
 services:
   api-service:
     image: ghcr.io/larsks/unixbbs-api-service:${TAG:-latest}
+    environment:
+      BBS_DATA_DIR: ${BBS_DATA_DIR:-/bbs-data}
     command:
       - -db=/bbs-data/bbs.db
-      - -data-dir=/bbs-data
+      - -data-dir=${BBS_DATA_DIR:-bbs-data}
       - -write-socket=/bbs-sock/api-write.sock
       - -read-socket=/bbs-sock/api-read.sock
       - -weather-url=${WEATHER_URL:-https://api.weather.gov/gridpoints/BOX/71,101/forecast}
       - -weather-user-agent=${WEATHER_USER_AGENT:-unixbbs-api-service}
       - -weather-cache-ttl=${WEATHER_CACHE_TTL:-1800}
     volumes:
-      - bbs-data:/bbs-data
+      - bbs-data:${BBS_DATA_DIR:-/bbs-data}
       - bbs-sock:/bbs-sock
     restart: unless-stopped
 

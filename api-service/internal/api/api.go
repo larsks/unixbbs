@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"unixbbs/api-service/internal/exam"
 	"unixbbs/api-service/internal/presence"
 	"unixbbs/api-service/internal/store"
 )
@@ -37,6 +38,7 @@ const recentLoginsLimit = 10
 
 // Handlers holds the shared state used by both sockets' handlers.
 type Handlers struct {
+	Examiner          *exam.Examiner
 	Store             *store.Store
 	Presence          *presence.Tracker
 	Provisioner       Provisioner
@@ -69,7 +71,78 @@ func (h *Handlers) ReadMux() http.Handler {
 	mux.HandleFunc("GET /users/online", h.handleOnline)
 	mux.HandleFunc("GET /users/logins", h.handleRecentLogins)
 	mux.HandleFunc("GET /weather", h.handleWeather)
+	mux.HandleFunc("GET /exam/questions", h.handleListPools)
+	mux.HandleFunc("GET /exam/questions/{pool}", h.handleExamRandomQuestion)
+	mux.HandleFunc("GET /exam/questions/{pool}/{questionId}", h.handleExamQuestion)
 	return mux
+}
+
+func (h *Handlers) handleListPools(w http.ResponseWriter, r *http.Request) {
+	availablePools := h.Examiner.ListPools()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	body, err := json.Marshal(availablePools)
+	if err != nil {
+		http.Error(w, "failed to marshal list of pool names", http.StatusInternalServerError)
+		return
+	}
+	if _, err := w.Write(body); err != nil {
+		log.Printf("write pool list response: %v", err)
+	}
+}
+
+func (h *Handlers) handleExamQuestion(w http.ResponseWriter, r *http.Request) {
+	poolName := r.PathValue("pool")
+	questionId := r.PathValue("questionId")
+	log.Printf("looking for question %s in pool %s", questionId, poolName)
+	pool, err := h.Examiner.GetPool(poolName)
+	if err != nil {
+		http.Error(w, "no such pool", http.StatusNotFound)
+		return
+	}
+
+	question, err := pool.GetQuestionByID(questionId)
+	if err != nil {
+		http.Error(w, "no such question", http.StatusNotFound)
+		return
+	}
+
+	writeQuestionJSON(w, question)
+}
+
+func (h *Handlers) handleExamRandomQuestion(w http.ResponseWriter, r *http.Request) {
+	poolName := r.PathValue("pool")
+	log.Printf("looking for random question in pool %s", poolName)
+
+	pool, err := h.Examiner.GetPool(poolName)
+	if err != nil {
+		http.Error(w, "no such pool", http.StatusNotFound)
+		return
+	}
+
+	question := pool.RandomQuestionWithoutFigure()
+	if question == nil {
+		http.Error(w, "no available questions", http.StatusNotFound)
+		return
+	}
+
+	writeQuestionJSON(w, question)
+}
+
+func writeQuestionJSON(w http.ResponseWriter, question *exam.Question) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	body, err := json.Marshal(question)
+	if err != nil {
+		http.Error(w, "failed to marshal question", http.StatusInternalServerError)
+		return
+	}
+	if _, err := w.Write(body); err != nil {
+		log.Printf("write question response: %v", err)
+	}
 }
 
 func (h *Handlers) handleWeather(w http.ResponseWriter, r *http.Request) {

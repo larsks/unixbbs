@@ -1,0 +1,66 @@
+#!/bin/bash
+
+set -e
+
+READ_SOCK=/bbs-sock/api-read.sock
+
+list_pools() {
+  curl -Ssf --unix-socket "$READ_SOCK" http://localhost/exam/questions | jq -r '.[]'
+}
+
+while getopts l ch; do
+  case $ch in
+  l)
+    list_pools
+    exit
+    ;;
+  \?)
+    exit 2
+    ;;
+  esac
+done
+
+pool=$1
+if [[ -z "$pool" ]]; then
+  echo "You must specify the name of a question pool ($(list_pools | tr '\n' ','))." >&2
+  exit 1
+fi
+
+question=$(curl -Ssf --unix-socket "$READ_SOCK" "http://localhost/exam/questions/$pool")
+
+qId=$(jq -r .id <<<"$question")
+qQuestion=$(jq -r .question <<<"$question")
+qAnswer=$(jq -r .correct_letter <<<"$question")
+
+cat <<EOF
+Question $qId
+===============
+
+$(fmt -w70 <<<"$qQuestion")
+
+EOF
+
+letters=ABCD
+i=0
+jq -r '.answers[]' <<<"$question" |
+  while read -r answer; do
+    echo "${letters:$i:1}. $answer" | fmt -w 70 | sed '2,$s/^/   /'
+    ((++i))
+  done
+
+echo
+
+while :; do
+  printf "Your answer? "
+  read -r answer
+  if [[ ${answer^^} =~ ^[ABCD]$ ]]; then
+    break
+  fi
+done
+
+echo
+if [[ ${answer^^} = "${qAnswer^^}" ]]; then
+  printf "That's correct! Great work.\n"
+else
+  printf "The correct answer was $qAnswer.\n"
+fi
