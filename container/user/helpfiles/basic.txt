@@ -14,9 +14,11 @@ To exit the interpreter:
 
 Example program:
 
+    Note that all BASIC syntax must be IN UPPER CASE.
+
     10 GOSUB 100
-    20 INPUT "WHAT IS YOUR NAME? "; A$
-    30 PRINT "HELLO "; A$
+    20 INPUT "What is your name"; A$
+    30 PRINT "Hello, "; A$; "."
     40 GOSUB 100
     50 END
 
