@@ -24,7 +24,7 @@ func main() {
 
 	// mode=ro enforces at the driver level what mail-service already
 	// treats as a software invariant (compose.yaml): chat-service never
-	// writes to bbs.db, only user-service does (DESIGN.md §4/§9.4).
+	// writes to bbs.db, only api-service does (DESIGN.md §4/§9.4).
 	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", *dbPath))
 	if err != nil {
 		log.Fatalf("open database: %v", err)
@@ -78,7 +78,7 @@ func handleConn(conn net.Conn, db *sql.DB, hub *chat.Hub) {
 // socket file left behind by a previous run, and sets its permission
 // bits explicitly -- net.Listen's default mode depends on umask, which
 // is not something to leave implicit for a socket everyone connects to
-// (see DESIGN.md §9.1/§9.4). Mirrors user-service's listenUnix.
+// (see DESIGN.md §9.1/§9.4). Mirrors api-service's listenUnix.
 func listenUnix(path string, mode os.FileMode) (net.Listener, error) {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return nil, err

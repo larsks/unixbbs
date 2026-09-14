@@ -87,16 +87,16 @@ func TestEnsureUserDirsIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestEnsureBulletinsDirCreatesMaildir(t *testing.T) {
+func TestEnsureNewsDirCreatesMaildir(t *testing.T) {
 	dir := t.TempDir()
 	p := New(dir)
 
-	if err := p.EnsureBulletinsDir(); err != nil {
-		t.Fatalf("EnsureBulletinsDir: %v", err)
+	if err := p.EnsureNewsDir(); err != nil {
+		t.Fatalf("EnsureNewsDir: %v", err)
 	}
 
 	for _, sub := range []string{"cur", "new", "tmp"} {
-		path := filepath.Join(dir, "bulletins", sub)
+		path := filepath.Join(dir, "news", sub)
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatalf("stat %s: %v", path, err)
@@ -107,14 +107,14 @@ func TestEnsureBulletinsDirCreatesMaildir(t *testing.T) {
 	}
 }
 
-func TestEnsureBulletinsDirIsIdempotent(t *testing.T) {
+func TestEnsureNewsDirIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	p := New(dir)
 
-	if err := p.EnsureBulletinsDir(); err != nil {
-		t.Fatalf("EnsureBulletinsDir (first): %v", err)
+	if err := p.EnsureNewsDir(); err != nil {
+		t.Fatalf("EnsureNewsDir (first): %v", err)
 	}
-	if err := p.EnsureBulletinsDir(); err != nil {
-		t.Fatalf("EnsureBulletinsDir (second): %v", err)
+	if err := p.EnsureNewsDir(); err != nil {
+		t.Fatalf("EnsureNewsDir (second): %v", err)
 	}
 }

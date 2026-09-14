@@ -12,4 +12,4 @@ if grep -q 'Raspberry Pi' /proc/cpuinfo; then
 fi
 
 docker compose -f build.yaml "${compose_args[@]}" build "${compose_build_args[@]}" &&
-  docker build -t unixbbs-user -f container/user/Containerfile container/user
+  docker build -t ghcr.io/larsks/unixbbs-user:latest -f container/user/Containerfile container/user

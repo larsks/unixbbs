@@ -1,16 +1,27 @@
-// Package api implements the user-service HTTP handlers, split across
+// Package api implements the api-service HTTP handlers, split across
 // the two sockets described in DESIGN.md §4.1: a root-only write socket
 // (account lookup/creation, presence registration) and a
-// world-connectable read socket (listing users, listing who's online).
+// world-connectable read socket (listing users, listing who's online, and
+// retrieving the configured weather forecast).
 package api
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
-	"unixbbs/user-service/internal/presence"
-	"unixbbs/user-service/internal/store"
+	"unixbbs/api-service/internal/presence"
+	"unixbbs/api-service/internal/store"
+)
+
+const (
+	DefaultWeatherURL       = "https://api.weather.gov/gridpoints/BOX/71,101/forecast"
+	DefaultWeatherUserAgent = "unixbbs-api-service"
+	maxWeatherResponseSize  = 2 << 20
 )
 
 // Provisioner creates the per-uid directories a newly-looked-up user
@@ -26,12 +37,19 @@ const recentLoginsLimit = 10
 
 // Handlers holds the shared state used by both sockets' handlers.
 type Handlers struct {
-	Store       *store.Store
-	Presence    *presence.Tracker
-	Provisioner Provisioner
+	Store             *store.Store
+	Presence          *presence.Tracker
+	Provisioner       Provisioner
+	WeatherURL        string
+	HTTPClient        *http.Client
+	WeatherUserAgent  string
+	WeatherCacheTTL   time.Duration
+	weatherCacheMu    sync.Mutex
+	weatherCacheBody  []byte
+	weatherCacheUntil time.Time
 }
 
-// WriteMux returns the handler for user-write.sock: mutating/
+// WriteMux returns the handler for api-write.sock: mutating/
 // identity-claiming endpoints only. Callers must serve this on a socket
 // only root can connect to (mode 0700) -- these handlers do not
 // authenticate the caller themselves.
@@ -43,14 +61,111 @@ func (h *Handlers) WriteMux() http.Handler {
 	return mux
 }
 
-// ReadMux returns the handler for user-read.sock: read-only endpoints
+// ReadMux returns the handler for api-read.sock: read-only endpoints
 // safe to expose to the logged-in, unprivileged session (mode 0666).
 func (h *Handlers) ReadMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /users/list", h.handleList)
 	mux.HandleFunc("GET /users/online", h.handleOnline)
 	mux.HandleFunc("GET /users/logins", h.handleRecentLogins)
+	mux.HandleFunc("GET /weather", h.handleWeather)
 	return mux
+}
+
+func (h *Handlers) handleWeather(w http.ResponseWriter, r *http.Request) {
+	if body, ok := h.cachedWeather(); ok {
+		writeWeatherJSON(w, body)
+		return
+	}
+
+	weatherURL := h.WeatherURL
+	if weatherURL == "" {
+		weatherURL = DefaultWeatherURL
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, weatherURL, nil)
+	if err != nil {
+		log.Printf("create weather request: %v", err)
+		http.Error(w, "weather service unavailable", http.StatusBadGateway)
+		return
+	}
+	userAgent := h.WeatherUserAgent
+	if userAgent == "" {
+		userAgent = DefaultWeatherUserAgent
+	}
+	req.Header.Set("Accept", "application/geo+json, application/json")
+	req.Header.Set("User-Agent", userAgent)
+
+	client := h.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("fetch weather: %v", err)
+		http.Error(w, "weather service unavailable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWeatherResponseSize+1))
+	if err != nil {
+		log.Printf("read weather response: %v", err)
+		http.Error(w, "weather service unavailable", http.StatusBadGateway)
+		return
+	}
+	if len(body) > maxWeatherResponseSize {
+		log.Printf("weather response exceeds %d bytes", maxWeatherResponseSize)
+		http.Error(w, "weather response too large", http.StatusBadGateway)
+		return
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		log.Printf("weather service returned HTTP %d: %s", resp.StatusCode, summarize(body))
+		http.Error(w, "weather service unavailable", http.StatusBadGateway)
+		return
+	}
+	if !json.Valid(body) {
+		log.Printf("weather service returned invalid JSON")
+		http.Error(w, "weather service returned invalid JSON", http.StatusBadGateway)
+		return
+	}
+
+	if h.WeatherCacheTTL > 0 {
+		h.weatherCacheMu.Lock()
+		h.weatherCacheBody = append(h.weatherCacheBody[:0], body...)
+		h.weatherCacheUntil = time.Now().Add(h.WeatherCacheTTL)
+		h.weatherCacheMu.Unlock()
+	}
+	writeWeatherJSON(w, body)
+}
+
+func (h *Handlers) cachedWeather() ([]byte, bool) {
+	if h.WeatherCacheTTL <= 0 {
+		return nil, false
+	}
+
+	h.weatherCacheMu.Lock()
+	defer h.weatherCacheMu.Unlock()
+	if len(h.weatherCacheBody) == 0 || !time.Now().Before(h.weatherCacheUntil) {
+		return nil, false
+	}
+	return append([]byte(nil), h.weatherCacheBody...), true
+}
+
+func writeWeatherJSON(w http.ResponseWriter, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(body); err != nil {
+		log.Printf("write weather response: %v", err)
+	}
+}
+
+func summarize(body []byte) string {
+	const maxSummary = 256
+	if len(body) > maxSummary {
+		body = body[:maxSummary]
+	}
+	return fmt.Sprintf("%q", string(body))
 }
 
 type lookupRequest struct {
@@ -202,7 +317,7 @@ type expireLoginsResponse struct {
 
 // handleExpireLogins deletes login history older than 14 days. Called
 // by a daily cron job (container/cron) -- see DESIGN.md's note that
-// user-service is the only writer to bbs.db, so the cron container
+// api-service is the only writer to bbs.db, so the cron container
 // goes through this endpoint rather than touching the database file
 // directly.
 func (h *Handlers) handleExpireLogins(w http.ResponseWriter, r *http.Request) {

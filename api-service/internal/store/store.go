@@ -1,4 +1,4 @@
-// Package store implements the user-service's SQLite-backed account
+// Package store implements the api-service's SQLite-backed account
 // database: the users table (callsign -> uid) and get-or-create lookup.
 package store
 

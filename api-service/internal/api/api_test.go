@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"unixbbs/user-service/internal/presence"
-	"unixbbs/user-service/internal/store"
+	"unixbbs/api-service/internal/presence"
+	"unixbbs/api-service/internal/store"
 )
 
 // stubProvisioner satisfies Provisioner without touching the
@@ -226,6 +229,140 @@ func TestHandleListAndOnline(t *testing.T) {
 	onlineResp.Body.Close()
 	if len(online) != 0 {
 		t.Fatalf("/users/online = %+v, want empty before any presence registration", online)
+	}
+}
+
+func TestHandleWeatherReturnsConfiguredForecast(t *testing.T) {
+	const forecast = `{"properties":{"periods":[{"name":"Today","isDaytime":true,"temperature":72}]}}`
+	weatherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("User-Agent") == "" {
+			t.Errorf("weather request = %s User-Agent=%q", r.Method, r.Header.Get("User-Agent"))
+		}
+		w.Header().Set("Content-Type", "application/geo+json")
+		ioWriteString(t, w, forecast)
+	}))
+	defer weatherServer.Close()
+
+	h := newTestHandlers(t)
+	h.WeatherURL = weatherServer.URL
+	h.HTTPClient = weatherServer.Client()
+	client, _ := testServer(t, h.ReadMux())
+
+	resp, err := client.Get("http://unix/weather")
+	if err != nil {
+		t.Fatalf("GET /weather: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var got struct {
+		Properties struct {
+			Periods []struct {
+				Name string `json:"name"`
+			} `json:"periods"`
+		} `json:"properties"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode /weather: %v", err)
+	}
+	if len(got.Properties.Periods) != 1 || got.Properties.Periods[0].Name != "Today" {
+		t.Fatalf("unexpected forecast: %+v", got.Properties.Periods)
+	}
+}
+
+func TestHandleWeatherCachesSuccessfulResponse(t *testing.T) {
+	var requests atomic.Int32
+	weatherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		ioWriteString(t, w, `{"properties":{"periods":[]}}`)
+	}))
+	defer weatherServer.Close()
+
+	h := newTestHandlers(t)
+	h.WeatherURL = weatherServer.URL
+	h.HTTPClient = weatherServer.Client()
+	h.WeatherCacheTTL = time.Hour
+	client, _ := testServer(t, h.ReadMux())
+
+	for i := 0; i < 2; i++ {
+		resp, err := client.Get("http://unix/weather")
+		if err != nil {
+			t.Fatalf("GET /weather (%d): %v", i, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /weather (%d) status = %d, want %d", i, resp.StatusCode, http.StatusOK)
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("upstream requests = %d, want 1", got)
+	}
+}
+
+func TestHandleWeatherCacheCanBeDisabled(t *testing.T) {
+	var requests atomic.Int32
+	weatherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		ioWriteString(t, w, `{"properties":{"periods":[]}}`)
+	}))
+	defer weatherServer.Close()
+
+	h := newTestHandlers(t)
+	h.WeatherURL = weatherServer.URL
+	h.HTTPClient = weatherServer.Client()
+	client, _ := testServer(t, h.ReadMux())
+
+	for i := 0; i < 2; i++ {
+		resp, err := client.Get("http://unix/weather")
+		if err != nil {
+			t.Fatalf("GET /weather (%d): %v", i, err)
+		}
+		resp.Body.Close()
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("upstream requests = %d, want 2 with caching disabled", got)
+	}
+}
+
+func TestHandleWeatherRejectsUpstreamFailureAndInvalidJSON(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+	}{
+		{name: "upstream status", statusCode: http.StatusServiceUnavailable, body: `{"error":"down"}`},
+		{name: "invalid json", statusCode: http.StatusOK, body: "not json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			weatherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				ioWriteString(t, w, tt.body)
+			}))
+			defer weatherServer.Close()
+
+			h := newTestHandlers(t)
+			h.WeatherURL = weatherServer.URL
+			h.HTTPClient = weatherServer.Client()
+			client, _ := testServer(t, h.ReadMux())
+
+			resp, err := client.Get("http://unix/weather")
+			if err != nil {
+				t.Fatalf("GET /weather: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadGateway {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadGateway)
+			}
+		})
+	}
+}
+
+func ioWriteString(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := strings.NewReader(body).WriteTo(w); err != nil {
+		t.Errorf("write test response: %v", err)
 	}
 }
 

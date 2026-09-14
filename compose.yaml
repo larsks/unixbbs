@@ -29,13 +29,16 @@
 # `TAG` selects which published version to pull (see .env.example);
 # it defaults to `latest`.
 services:
-  user-service:
-    image: ghcr.io/larsks/unixbbs-user-service:${TAG:-latest}
+  api-service:
+    image: ghcr.io/larsks/unixbbs-api-service:${TAG:-latest}
     command:
       - -db=/bbs-data/bbs.db
       - -data-dir=/bbs-data
-      - -write-socket=/bbs-sock/user-write.sock
-      - -read-socket=/bbs-sock/user-read.sock
+      - -write-socket=/bbs-sock/api-write.sock
+      - -read-socket=/bbs-sock/api-read.sock
+      - -weather-url=${WEATHER_URL:-https://api.weather.gov/gridpoints/BOX/71,101/forecast}
+      - -weather-user-agent=${WEATHER_USER_AGENT:-unixbbs-api-service}
+      - -weather-cache-ttl=${WEATHER_CACHE_TTL:-1800}
     volumes:
       - bbs-data:/bbs-data
       - bbs-sock:/bbs-sock
@@ -48,7 +51,7 @@ services:
     # bbs.db. A per-subpath read-only mount for bbs.db was tried and
     # rejected: Docker's volume-subpath mounts don't auto-create their
     # target (confirmed by testing), so mounting a read-only subpath at
-    # /bbs-data/bbs.db would race user-service's own lazy creation of
+    # /bbs-data/bbs.db would race api-service's own lazy creation of
     # that file on first-ever startup -- whichever container wins the
     # race, the other fails outright rather than degrading gracefully.
     # "bbs.db is read-only from mail-service's side" (DESIGN.md §4/§6)
@@ -58,7 +61,7 @@ services:
       - bbs-data:/bbs-data
       - bbs-mailsock:/var/spool/postfix/public/bbssock
     depends_on:
-      - user-service
+      - api-service
     restart: unless-stopped
 
   chat-service:
@@ -76,7 +79,7 @@ services:
       - bbs-data:/bbs-data:ro
       - bbs-chatsock:/bbs-sock
     depends_on:
-      - user-service
+      - api-service
     restart: unless-stopped
 
   cron-service:
@@ -86,7 +89,7 @@ services:
       - bbs-mailsock:/var/spool/postfix/public/bbssock
       - bbs-sock:/bbs-sock
     depends_on:
-      - user-service
+      - api-service
     restart: unless-stopped
 
 volumes:

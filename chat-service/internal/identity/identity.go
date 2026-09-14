@@ -40,7 +40,7 @@ func PeerUID(conn *net.UnixConn) (uint32, error) {
 }
 
 // CallsignForUID resolves uid to its callsign via a read-only query
-// against bbs.db -- the same users table user-service owns (DESIGN.md
+// against bbs.db -- the same users table api-service owns (DESIGN.md
 // §3), read the same way mail-service already reads it (§4), never
 // written to from here.
 func CallsignForUID(ctx context.Context, db *sql.DB, uid uint32) (string, error) {

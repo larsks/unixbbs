@@ -18,7 +18,7 @@ RUN chown root:postfix /etc/postfix/sqlite-virtual-mailbox.cf \
 # all (DESIGN.md §2.3). virtual_uid_maps/virtual_gid_maps are genuine
 # per-recipient dynamic sqlite lookups, confirmed by testing to deliver
 # each user's mail owned by that user's own uid:gid, matching the
-# mail/<uid> ownership user-service sets up. Logging is left on
+# mail/<uid> ownership api-service sets up. Logging is left on
 # Postfix's syslog default -- the entrypoint runs busybox `syslogd -C`
 # (a bounded in-memory ring buffer, read with `logread`) rather than
 # maillog_file, so there's no on-disk log file to rotate or cap. alias_maps

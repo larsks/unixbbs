@@ -44,11 +44,11 @@ verified empirically against real Postfix installs — initially Postfix
 base image this design now targets — see §2.3 and §5) — not just read
 off man pages. See rationale after each.
 
-- **`user-service`**: a small Go HTTP server, listening on **two** Unix
+- **`api-service`**: a small Go HTTP server, listening on **two** Unix
   sockets split by trust level rather than one (see §4.1):
-  a root-only `user-write.sock` for lookup/create and presence
-  registration, and a world-connectable `user-read.sock` for the
-  read-only `users` command. Called from the ephemeral container with
+  a root-only `api-write.sock` for lookup/create and presence
+  registration, and a world-connectable `api-read.sock` for read-only
+  user queries and the weather forecast. Called from the ephemeral container with
   `curl --unix-socket`, or directly via Go's `net.Dial("unix", ...)`
   from anything we write ourselves. Untested but low-risk — this is our
   own code, not a third-party daemon with undocumented constraints.
@@ -134,8 +134,8 @@ business seeing.
 ```
 named volumes used purely for IPC (not data) -- see §3/§7 for the
 compose.yaml stack that owns these:
-  unixbbs-sock       <- mounted at /bbs-sock in user-service; holds
-                        user-write.sock (0700) and user-read.sock (0666)
+  unixbbs-sock       <- mounted at /bbs-sock in api-service; holds
+                        api-write.sock (0700) and api-read.sock (0666)
   unixbbs-mailsock   <- mounted at mail-service's own
                         /var/spool/postfix/public/bbssock/, and at
                         /bbs-sock/mail/ in every ephemeral container, so
@@ -181,7 +181,7 @@ this doesn't reintroduce real networking — it's a protocol adapter, and
 it is now a **required** component of every ephemeral container's image,
 not an optional fallback.
 
-**Service containers** (`user-service`, `mail-service`) keep normal
+**Service containers** (`api-service`, `mail-service`) keep normal
 network access — the isolation requirement is specifically about the
 ephemeral user containers, not the trusted core services.
 
@@ -331,7 +331,7 @@ is unaffected by this choice; it was purely a mailbox-format question.
 **Superseded**: an earlier pass at this design used a single host
 directory (`$DATADIR`, set in `.envrc`) bind-mounted into both core
 services, and that's how build-order steps 1–4 were actually tested.
-Once `user-service` and `mail-service` needed to run as a real,
+Once `api-service` and `mail-service` needed to run as a real,
 persistent stack rather than one-off `docker run` invocations for
 testing, that was replaced with `compose.yaml` at the repo root and
 three **named Docker volumes** instead of host directories — no code
@@ -346,7 +346,7 @@ variables (the latter already dead — superseded by SQLite's own
 
 ```
 unixbbs-data                 # named volume, mounted at /bbs-data in
-                              # both user-service and mail-service
+                              # both api-service and mail-service
   bbs.db                     # SQLite; users table. WAL mode.
   bbs.db-wal / bbs.db-shm    # WAL sidecar files (same directory)
   mail/
@@ -360,9 +360,9 @@ unixbbs-data                 # named volume, mounted at /bbs-data in
                               # "Bulletins" subsection under §4
 
 unixbbs-sock                 # named volume, mounted at /bbs-sock in
-                              # user-service
-  user-write.sock             # root-only (0700)
-  user-read.sock               # world-connectable (0666)
+                              # api-service
+  api-write.sock              # root-only (0700)
+  api-read.sock               # world-connectable (0666)
 
 unixbbs-mailsock              # named volume, mounted at mail-service's
                               # own /var/spool/postfix/public/bbssock/
@@ -383,7 +383,7 @@ permission bits for isolation) — this hasn't changed by moving to named
 volumes.
 
 **A real bug this surfaced, confirmed by testing against a genuinely
-fresh (empty) volume** — not just theoretical: `user-service`'s
+fresh (empty) volume** — not just theoretical: `api-service`'s
 `provision.EnsureUserDirs` used to create a new user's Maildir with
 `os.MkdirAll(".../mail/<uid>", 0o700)` directly. `MkdirAll` applies its
 mode argument to *every* directory it has to create along the path, not
@@ -393,7 +393,7 @@ just the leaf — so on a brand-new, empty volume where `mail/` and
 `0700` per-uid directory underneath for anyone but root. This never
 showed up during the earlier host-directory testing because those
 parent directories were always pre-created by hand (as the host user,
-with normal permissions) before `user-service` ever ran against them —
+with normal permissions) before `api-service` ever ran against them —
 a fresh named volume was the first time `mail/`/`home/` genuinely
 didn't exist yet at startup. Fixed by explicitly creating `mail/` and
 `home/` themselves with `0755` before creating the per-uid `0700`
@@ -415,10 +415,10 @@ INSERT INTO sqlite_sequence (name, seq) VALUES ('users', 9999);
 
 `PRAGMA journal_mode=WAL;` is set on this database — it's what lets
 `mail-service`'s Postfix do read-only point lookups against it
-concurrently with `user-service` writing new rows, with no locking code
+concurrently with `api-service` writing new rows, with no locking code
 of our own.
 
-Get-or-create, in `user-service`, is a single atomic statement pair
+Get-or-create, in `api-service`, is a single atomic statement pair
 inside one transaction — SQLite's unique constraint does the
 concurrency-safety work:
 
@@ -433,7 +433,7 @@ UID is ever double-allocated or skipped in a way that matters.
 
 ## 4. Service boundaries
 
-- **`user-service`** is the only thing with `bbs.db` mounted read-write.
+- **`api-service`** is the only thing with `bbs.db` mounted read-write.
   It owns account creation and is the only writer.
 - **`mail-service`** mounts `bbs.db` **read-only** and queries it
   natively via Postfix's `sqlite:` map type for
@@ -441,17 +441,17 @@ UID is ever double-allocated or skipped in a way that matters.
   path) — no lookup sidecar needed, since this is a stock Postfix lookup
   table type pointed at our schema.
 - **Ephemeral (user) containers** never see `bbs.db` at all. They reach
-  `user-service` only through its socket API — a privileged call at
+  `api-service` only through its socket API — a privileged call at
   login (get-or-create by callsign, and registering presence), and an
   unprivileged one available to the logged-in shell for the `users`
   command (see §4.1).
 
-### 4.1 `user-service` API: two sockets, split by trust level
+### 4.1 `api-service` API: two sockets, split by trust level
 
-The ENTRYPOINT needs to call `user-service` while it's still root, for
+The ENTRYPOINT needs to call `api-service` while it's still root, for
 operations that either mutate `bbs.db` or claim an identity (presence
 registration). The interactive shell, once it drops to the unprivileged
-provisioned account, needs to call `user-service` too — but only for
+provisioned account, needs to call `api-service` too — but only for
 read-only queries (`users`, `users --online`), and it must not be able
 to reach the mutating endpoints, since it's an otherwise-unrestricted
 `dash` shell (§5) and the only thing standing between "run the `users`
@@ -466,7 +466,7 @@ regular file, so two socket files with different modes in the same
 shared, bind-mounted directory get different reachability for free, with
 no code on either side able to get it wrong:
 
-- **`user-write.sock`** — mode `0700`, owned `root:root`. Only a process
+- **`api-write.sock`** — mode `0700`, owned `root:root`. Only a process
   still running as root (i.e. the ENTRYPOINT, before it provisions and
   switches to the session's unprivileged UID) can `connect()` to it at
   all; the provisioned account gets `EACCES` if it tries, even though
@@ -479,7 +479,7 @@ no code on either side able to get it wrong:
 
   POST /users/presence   (see §4.2 — held open, not request/response)
   ```
-- **`user-read.sock`** — mode `0666`, connectable by anyone, including
+- **`api-read.sock`** — mode `0666`, connectable by anyone, including
   the provisioned account. Handlers here don't accept any input that
   could turn them into a mutation, by construction — there's no code
   path from a crafted request on this socket to a database write.
@@ -509,25 +509,25 @@ polling, and without a heartbeat that could go stale if a container dies
 uncleanly.
 
 **Mechanism**: right after the login lookup, while still root, the
-ENTRYPOINT opens a second connection to `user-write.sock` and sends one
+ENTRYPOINT opens a second connection to `api-write.sock` and sends one
 line registering the session (`{"callsign":"N0CALL","uid":10042}`), then
 *holds that connection open* for the rest of the container's life — it's
-never a request/response exchange, just a long-lived pipe. `user-service`
+never a request/response exchange, just a long-lived pipe. `api-service`
 adds an entry to an in-memory (deliberately not SQLite — see below) map
 keyed by the connection itself, and blocks on a `Read` from it. The
 moment that `Read` returns an error — clean shell exit, `docker kill`,
 OOM-kill, host crash, anything — the kernel has already torn down the
-socket, and `user-service` deletes the entry immediately. There is
+socket, and `api-service` deletes the entry immediately. There is
 nothing to time out or reconcile: the OS-level "this pipe is broken"
 signal *is* the liveness signal, and it fires the same way whether the
 container exited cleanly or was killed out from under it, which a
 heartbeat-file or last-seen-timestamp approach doesn't get for free.
 
 Why in-memory rather than a `sessions` table in `bbs.db`: presence is
-only ever meaningful while `user-service` itself is running — a restart
+only ever meaningful while `api-service` itself is running — a restart
 naturally clears it, and correctly so, since every still-live container
 would need to re-establish its connection anyway (nothing survives a
-`user-service` restart on the container side either). Persisting it would
+`api-service` restart on the container side either). Persisting it would
 add write-lock churn to `bbs.db` on every single login/logout, against a
 database whose only other writer is the much rarer new-callsign case,
 for a table that isn't supposed to outlive the process anyway. Keying by
@@ -543,13 +543,13 @@ opened the connection and then `exec`'d `dash` without closing it, the
 interactive shell would inherit that already-open file descriptor —
 and an *open* fd is not subject to a fresh permission check, so this
 would hand an unprivileged shell a live, privileged pipe into
-`user-write.sock` regardless of the socket's `0700` mode. The fix is
+`api-write.sock` regardless of the socket's `0700` mode. The fix is
 ordinary process hygiene, not new mechanism: fork the connection-holder
 into its own backgrounded subshell before the `useradd`/privilege-drop
 step, e.g.
 
 ```sh
-( exec 3<>/bbs-sock/user-write.sock
+( exec 3<>/bbs-sock/api-write.sock
   printf '{"callsign":"%s","uid":%s}\n' "$CALLSIGN" "$UID" >&3
   cat <&3 >/dev/null ) &
 ```
@@ -568,15 +568,34 @@ dumb-terminal constraint (§1):
 ```sh
 #!/bin/dash
 case "$1" in
-  -o|--online) curl -s --unix-socket /bbs-sock/user-read.sock \
+  -o|--online) curl -s --unix-socket /bbs-sock/api-read.sock \
                  http://localhost/users/online | jq -r '.[].callsign' ;;
-  *)           curl -s --unix-socket /bbs-sock/user-read.sock \
+  *)           curl -s --unix-socket /bbs-sock/api-read.sock \
                  http://localhost/users/list   | jq -r '.[].callsign' ;;
 esac
 ```
 (exact formatting/columns TBD — `jq` needs to actually be in the image,
 or this becomes a few lines of `sed`/`cut` if we'd rather not add the
 dependency; not a design-level decision.)
+
+**`weather` command and `/weather` endpoint**: `api-service` exposes
+`GET /weather` on `api-read.sock`. The endpoint fetches the configured
+Weather.gov gridpoint forecast and returns its JSON response, including
+`.properties.periods`, to the caller. The default URL is
+`https://api.weather.gov/gridpoints/BOX/71,101/forecast`; Compose can
+override it with `WEATHER_URL`. The service uses a bounded HTTP timeout,
+an identifying `User-Agent`, and never accepts a caller-supplied URL.
+Successful responses are cached in memory for 1800 seconds by default;
+the `WEATHER_CACHE_TTL` Compose setting controls the TTL in seconds, and
+`0` disables caching. The cache is local to one `api-service` process and
+is lost on restart.
+
+The ephemeral image installs `/usr/local/bin/weather`, which calls the
+endpoint over the Unix socket and formats the response with `jq`. With
+no arguments it prints only `Today` and `Tonight`; `weather --long` also
+prints every remaining period whose `isDaytime` value is true. The user
+container remains network-isolated; only `api-service` accesses the
+external weather service.
 
 ### `mail-service`
 
@@ -639,7 +658,7 @@ container):
    '%s' COLLATE NOCASE`) correctly produced two different uid/gid pairs
    for the two users' delivered files. This is what lets `mail-service`
    deliver correctly-owned mail for *any* user without per-user
-   configuration, matching the `mail/<uid>` ownership `user-service`
+   configuration, matching the `mail/<uid>` ownership `api-service`
    already sets up in its provisioning step.
 
    Also confirmed, and required in the real container (not just a test
@@ -707,7 +726,7 @@ bulletin board anyway (confirmed: re-running `bulletins` twice left
 An earlier version of this design tried to bind-mount only *this
 session's* `mail/<uid>` and `home/<uid>` directories into the container —
 but that requires knowing the UID at `docker run` time, which means
-either the external AX.25 spawner has to do the `user-service` lookup
+either the external AX.25 spawner has to do the `api-service` lookup
 itself before invoking Docker, or some other machinery has to attach
 mounts to an already-running container (which Docker doesn't support).
 
@@ -752,7 +771,7 @@ not a blocker.)
   for UX (e.g. pointing out `mail` and `bulletins`) — cosmetic, not a
   security boundary.
 - `curl` (or a small statically-linked Go helper) for the
-  `user-service` lookup call, presence registration, and the `users`
+  `api-service` lookup call, presence registration, and the `users`
   command's read-socket queries.
 - The `users` command itself (§4.2) — a small script in `PATH`, plus
   whatever it needs for JSON output formatting (`jq`, or a few lines of
@@ -847,7 +866,7 @@ not a blocker.)
 1. Read `$SRC_CALLSIGN`. Normalize: uppercase, strip a trailing AX.25 SSID
    (`-N`/`-NN`, e.g. `N0CALL-5` → `N0CALL`) — the SSID identifies a
    station/session, not a distinct BBS user.
-2. `curl --unix-socket /bbs-sock/user-write.sock -d '{"callsign":"..."}' http://localhost/users/lookup`
+2. `curl --unix-socket /bbs-sock/api-write.sock -d '{"callsign":"..."}' http://localhost/users/lookup`
    against the already-mounted socket directory (mounted at container
    start, no per-session coordination needed — see above). Get back
    `{ uid, created }`.
@@ -855,14 +874,14 @@ not a blocker.)
    subshell that holds the connection open for the container's lifetime —
    *not* in the foreground script that will later `exec` into `dash`,
    so the interactive shell never inherits an open fd to the privileged
-   socket. Since `user-write.sock` speaks real HTTP even for this
-   endpoint (`user-service` reads one `POST /users/presence` request,
+   socket. Since `api-write.sock` speaks real HTTP even for this
+   endpoint (`api-service` reads one `POST /users/presence` request,
    then hijacks the connection and never writes a response — the held-
    open connection itself is the protocol), the request needs proper
    framing, not a bare JSON line.
 
    **A plain shell fd redirection cannot open this connection at all** —
-   confirmed by testing: `exec 3<>/bbs-sock/user-write.sock` fails with
+   confirmed by testing: `exec 3<>/bbs-sock/api-write.sock` fails with
    `No such device or address`, because that's an `open(2)` against the
    socket's inode, and `open(2)` cannot `connect(2)` to an `AF_UNIX`
    socket. `socat` (already a required dependency, see §2.2) is needed
@@ -872,10 +891,10 @@ not a blocker.)
    container's real stdin (which belongs to the interactive session):
    ```sh
    ( body=$(printf '{"callsign":"%s","uid":%s}' "$CALLSIGN" "$UID")
-     { printf 'POST /users/presence HTTP/1.1\r\nHost: user-service\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
+     { printf 'POST /users/presence HTTP/1.1\r\nHost: api-service\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
            "${#body}" "$body"
        exec tail -f /dev/null
-     } | socat - "UNIX-CONNECT:/bbs-sock/user-write.sock" >/dev/null ) &
+     } | socat - "UNIX-CONNECT:/bbs-sock/api-write.sock" >/dev/null ) &
    ```
 4. Start the outbound relay shim (§2.2):
    `socat TCP-LISTEN:2525,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/bbs-sock/mail/mailsock &`
@@ -892,17 +911,17 @@ not a blocker.)
    ```
    `-M` (no home dir creation) because the home directory's *contents*
    live in the already-mounted `/bbs-data/home/$UID`, not in `useradd`'s
-   skeleton. If this is the user's first login, `user-service` has
+   skeleton. If this is the user's first login, `api-service` has
    already `mkdir -p`'d and `chown`'d `mail/<uid>` and `home/<uid>` as
    part of creating the record — the ephemeral container never creates
-   these directories itself, only `user-service` does (keeping that
+   these directories itself, only `api-service` does (keeping that
    responsibility in one place).
 6. Set `MAIL=/bbs-data/mail/$UID/` (Maildir — trailing slash matches the
    directory, not a flat file; see §2.4/§4), `HOME=/bbs-data/home/$UID`.
 7. Exec as that UID into `dash` (login shell), landing the user at a
    `.profile`-printed banner and a shell prompt. This process never had
-   `user-write.sock` open (step 3 ran in a separate backgrounded
-   subshell), so it inherits nothing it shouldn't; `/bbs-sock/user-read.sock`
+   `api-write.sock` open (step 3 ran in a separate backgrounded
+   subshell), so it inherits nothing it shouldn't; `/bbs-sock/api-read.sock`
    remains reachable throughout the session for the `users` command,
    since its permissive mode doesn't depend on which process is asking.
 
@@ -941,25 +960,25 @@ not a blocker.)
 - `mail-service` is the one container with the full `mail/` tree
   writable and `bbs.db` at all (read-only) — it's the trust boundary for
   both mail integrity and the user database.
-- `user-service` is the only writer to `bbs.db` — everyone else,
+- `api-service` is the only writer to `bbs.db` — everyone else,
   including `mail-service`, only ever reads it.
-- `user-service`'s two sockets (§4.1) are the same permission-bits
+- `api-service`'s two sockets (§4.1) are the same permission-bits
   pattern as `mail/`/`home/`, applied to IPC instead of data: the
-  provisioned shell account can never reach `user-write.sock` (mode
+  provisioned shell account can never reach `api-write.sock` (mode
   `0700`, root-owned) regardless of what it runs, so there's no code
   path — buggy or malicious — from an unprivileged session to creating
   bogus user records or forging another callsign's presence. This
   depends on the ENTRYPOINT never leaking an open fd to that socket into
   the process it `exec`s into as the unprivileged user (§4.2) — worth a
   deliberate test once implemented (`ls -la /proc/self/fd` from the
-  logged-in shell should show nothing pointing at `user-write.sock`).
+  logged-in shell should show nothing pointing at `api-write.sock`).
 
 ## 7. Suggested build order
 
-1. `user-service`: SQLite schema (embedded via `embed`), get-or-create
+1. `api-service`: SQLite schema (embedded via `embed`), get-or-create
    endpoint over a Unix socket. Unit-testable in isolation — no
    containers needed yet.
-2. Ephemeral container image + ENTRYPOINT, wired to `user-service`'s
+2. Ephemeral container image + ENTRYPOINT, wired to `api-service`'s
    socket, whole-tree `mail`/`home` mounts, `dash` login shell, no mail
    delivery yet — prove login + account provisioning end to end
    (`curl --unix-socket` round-trip, `useradd`, landing at a prompt).
@@ -972,13 +991,13 @@ not a blocker.)
 4. Bulletins: a root-owned, no-write-bit Maildir read via `mail -f`
    through a one-line `/usr/local/bin/bulletins` wrapper — see §4's
    "Bulletins" subsection.
-5. `compose.yaml`, managing `user-service` and `mail-service` (the two
+5. `compose.yaml`, managing `api-service` and `mail-service` (the two
    persistent core services — the ephemeral container is explicitly out
    of this stack, see §1) with the three named volumes from §3 in place
    of the host directories build-order steps 1–4 were tested against.
-   Required a `container/user-service/Containerfile` that didn't exist
+   Required a `container/api-service/Containerfile` that didn't exist
    before (a Go-build stage plus a plain `alpine:3` runtime stage,
-   `user-service` running as root by necessity — see §5's provisioning
+   `api-service` running as root by necessity — see §5's provisioning
    step). Verified end-to-end against the real compose stack: `docker
    compose up`, then an ephemeral container using the three named
    volumes by name (as the external AX.25 spawner would) for login,
@@ -986,7 +1005,7 @@ not a blocker.)
    surfaced the `EnsureUserDirs` parent-directory-mode bug documented in
    §3.
 6. `chat-service` (§9, **done**): same Go/Unix-socket house style as
-   `user-service`, `bbs-data` mounted read-only, plus the
+   `api-service`, `bbs-data` mounted read-only, plus the
    `unixbbs-chatsock` volume and the `/usr/local/bin/chat` wrapper added
    to the ephemeral image. No compose/entrypoint changes needed beyond
    the new service and volume, as expected — see §9.1. Not yet run
@@ -1001,7 +1020,7 @@ not a blocker.)
   under a listable `mail/`/`home/` parent (which reveals which numeric
   UIDs exist) is acceptable, or worth closing off with a non-listable
   parent mode.
-- **`user-write.sock` fd-leak check** (§4.2/§6): confirm empirically,
+- **`api-write.sock` fd-leak check** (§4.2/§6): confirm empirically,
   once the ENTRYPOINT is implemented, that the interactive shell process
   never inherits an open descriptor to the write socket — this is a
   process-hygiene requirement (background the presence-holder in a
@@ -1009,7 +1028,7 @@ not a blocker.)
   socket's `0700` mode enforces on its own.
 - **Presence reconnect semantics**: if a station reconnects quickly
   (e.g. a flaky AX.25 link drops and the same callsign reconnects before
-  `user-service` has processed the old connection's `EOF`), `users
+  `api-service` has processed the old connection's `EOF`), `users
   --online` may briefly show two entries for one callsign. Harmless for
   display (already de-duplicated), but worth deciding whether that's
   worth suppressing versus just documenting as expected.
@@ -1023,7 +1042,7 @@ not a blocker.)
 
 ## 9. Chat
 
-**Implemented**: `chat-service/` (Go module, mirroring `user-service/`'s
+**Implemented**: `chat-service/` (Go module, mirroring `api-service/`'s
 layout: `internal/chat` for the session registry/routing, `internal/
 identity` for the peer-credential lookup below), `container/
 chat-service/Containerfile`, the `chat-service` entry and
@@ -1043,14 +1062,14 @@ actually needed: it's an SSH server, and its identity model is SSH
 keys plus a client-chosen handle — at odds with §1's requirement that
 chat identity come *only* from the already-provisioned local username,
 with no IRC-style handle. In its place: a small purpose-built
-`chat-service`, matching `user-service`'s own house style (Go, a
+`chat-service`, matching `api-service`'s own house style (Go, a
 Unix-domain socket, schema/config via `embed` not string literals,
 `any` not `interface{}`, `gofmt` on every change).
 
 ### 9.1 Transport and identity: peer credentials, not a login step
 
 `chat-service` listens on one world-connectable Unix-domain socket,
-`chat.sock` (mode `0666`, same reasoning as `user-read.sock`, §4.1), in
+`chat.sock` (mode `0666`, same reasoning as `api-read.sock`, §4.1), in
 a new named volume `unixbbs-chatsock` mounted at chat-service's own
 socket directory and at `/bbs-sock/chat/` in every ephemeral container
 — mirroring `unixbbs-mailsock` (§3).
@@ -1290,12 +1309,12 @@ replacing busybox's own `last` applet — see below), and a daily
 `expire-logins` cron job in `container/cron`.
 
 A row is appended to `logins` (uid, callsign, timestamp) every time
-`handleLookup` succeeds on `user-write.sock` — that endpoint already
+`handleLookup` succeeds on `api-write.sock` — that endpoint already
 runs exactly once per session, at login (ENTRYPOINT step 2, §5), so
 it's the natural place to record the event rather than adding a
 separate call. `/usr/local/bin/last` (installed the same way as
 `/usr/local/bin/users`, §4.2) queries a new read-only endpoint, `GET
-/users/logins` on `user-read.sock`, which returns the 10 most recent
+/users/logins` on `api-read.sock`, which returns the 10 most recent
 rows newest-first — the same trust-split rationale as `/users/list`
 and `/users/online` (§4.1): the unprivileged shell can read login
 history but never write it.
@@ -1306,13 +1325,13 @@ since sessions aren't OS-level logins) purely through `$PATH` ordering:
 `/usr/local/bin` precedes `/usr/bin`, the same mechanism already
 relied on for `users`/`news`/`chat`/`help`.
 
-Retention (14 days) is enforced by `user-service` itself, not by the
-cron container: `user-service` is the only writer to `bbs.db` (§4/§6),
+Retention (14 days) is enforced by `api-service` itself, not by the
+cron container: `api-service` is the only writer to `bbs.db` (§4/§6),
 so `expire-logins` (`container/cron/expire-logins.sh`) calls a new
 write-socket endpoint, `POST /users/logins/expire`, rather than
 deleting rows from `bbs.db` directly. This is why `cron-service` now
 also mounts the `unixbbs-sock` volume at `/bbs-sock` and depends on
-`user-service` in `compose.yaml`, alongside the existing `bbs-data` and
+`api-service` in `compose.yaml`, alongside the existing `bbs-data` and
 `bbs-mailsock` mounts it already had for `update-news`. The job runs
 daily at 03:15, alongside the existing `*/30` `update-news` schedule in
 `container/cron/crontabs/root`.

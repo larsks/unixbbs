@@ -23,7 +23,7 @@ for entry in /etc.orig/*; do
   cp -a "$entry" "/etc/$name"
 done
 
-WRITE_SOCK=/bbs-sock/user-write.sock
+WRITE_SOCK=/bbs-sock/api-write.sock
 MAIL_SOCK=/bbs-sock/mail/mailsock
 
 # 1. Normalize the callsign: uppercase, strip a trailing AX.25 SSID
@@ -53,8 +53,8 @@ fi
 # 3. Register presence on a *separate* connection, held open for the
 #    container's lifetime, in a backgrounded subshell -- not the
 #    foreground script that will later exec into dash, so the
-#    interactive shell never inherits an open fd to user-write.sock.
-#    The connection is real HTTP (POST /users/presence): user-service
+#    interactive shell never inherits an open fd to api-write.sock.
+#    The connection is real HTTP (POST /users/presence): api-service
 #    reads this one request, then hijacks the connection and never
 #    writes a response -- the held-open connection itself is the
 #    protocol (see DESIGN.md §4.1/§4.2).
@@ -70,7 +70,7 @@ fi
 (
   body=$(printf '{"callsign":"%s","uid":%s}' "$CALLSIGN" "$USERID")
   {
-    printf 'POST /users/presence HTTP/1.1\r\nHost: user-service\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
+    printf 'POST /users/presence HTTP/1.1\r\nHost: api-service\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
       "${#body}" "$body"
     exec tail -f /dev/null
   } | socat - "UNIX-CONNECT:$WRITE_SOCK" >/dev/null
@@ -83,7 +83,7 @@ socat TCP-LISTEN:2525,bind=127.0.0.1,fork,reuseaddr "UNIX-CONNECT:$MAIL_SOCK" \
   >/dev/null 2>&1 &
 
 # 5. Provision the local account for this container instance, from
-#    scratch every time. `user-service` is responsible for mkdir/chown
+#    scratch every time. `api-service` is responsible for mkdir/chown
 #    of mail/<uid> and home/<uid> on first login -- this container never
 #    creates them itself.
 groupadd -g "$USERID" "$CALLSIGN"
@@ -96,7 +96,7 @@ export MAIL="/bbs-data/mail/$USERID/"
 export HOME="/bbs-data/home/$USERID"
 
 # 7. Exec as the provisioned account into dash. This process never had
-#    user-write.sock open (step 3 ran in a separate backgrounded
+#    api-write.sock open (step 3 ran in a separate backgrounded
 #    subshell), so it inherits nothing it shouldn't.
 #
 #    `su-exec` only changes uid/gid -- it doesn't chdir(), so without an

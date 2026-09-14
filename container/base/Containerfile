@@ -2,6 +2,7 @@ FROM docker.io/alpine:3
 
 RUN apk add \
   bash \
+  ca-certificates \
   sqlite \
   curl \
   git \

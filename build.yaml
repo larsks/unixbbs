@@ -16,11 +16,11 @@ services:
       context: .
       dockerfile: container/base/Containerfile
 
-  user-service:
-    image: ghcr.io/larsks/unixbbs-user-service:${TAG:-latest}
+  api-service:
+    image: ghcr.io/larsks/unixbbs-api-service:${TAG:-latest}
     build:
       context: .
-      dockerfile: container/user-service/Containerfile
+      dockerfile: container/api-service/Containerfile
       args:
         # Defaults to empty (all cores) unless GOMAXPROCS is set in your terminal
         - GOMAXPROCS=${GOMAXPROCS:-}

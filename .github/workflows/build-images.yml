@@ -95,9 +95,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: user-service
+          - name: api-service
             context: .
-            file: container/user-service/Containerfile
+            file: container/api-service/Containerfile
             build-contexts: base=docker-image://ghcr.io/larsks/unixbbs-base@${{ needs['build-base'].outputs.digest }}
           - name: mail-service
             context: ./container/mail
