@@ -1,5 +1,7 @@
 #!/bin/bash
 
+: "${BBS_DISABLE_ECHO:=1}"
+
 if [[ -z "$SRC_CALLSIGN" ]]; then
   echo "ERROR: unable to determine callsign" >&2
   exit 1
@@ -27,4 +29,5 @@ docker run --rm -it \
   -v unixbbs-mailsock:/bbs-sock/mail \
   -v unixbbs-chatsock:/bbs-sock/chat \
   -e SRC_CALLSIGN \
+  -e BBS_DISABLE_ECHO="${BBS_DISABLE_ECHO}" \
   "ghcr.io/larsks/unixbbs-user:${TAG:-latest}"

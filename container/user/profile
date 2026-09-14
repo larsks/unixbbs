@@ -5,9 +5,10 @@ export TERM=dumb
 export LESS=-dE
 export PAGER=less
 
-# Prevent annoying double-echo when using character-buffered
-# clients.
-stty -echo
+# Prevent annoying double-echo when using character-buffered clients.
+if [ "${BBS_DISABLE_ECHO:-}" = 1 ]; then
+  stty -echo
+fi
 
 cat <<'EOF'
 
@@ -19,5 +20,6 @@ Welcome to the BBS.
   users -- list known/online users
   chat  -- join the chat room
   last  -- show recent logins
+  weather -- show weather forecast
 
 EOF

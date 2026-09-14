@@ -50,8 +50,10 @@ docker compose up -d
 Connecting user containers can be spawned like this:
 
 ```sh
-SRC_CALLSIGN=N0CALL bash runuser.sh
+SRC_CALLSIGN=N0CALL BBS_DISABLE_ECHO=0 bash runuser.sh
 ```
+
+Setting `BBS_DISABLE_ECHO=0` prevents the user container from running `stty -echo`, which is useful when connecting with a packet terminal but not so much when directly spawning a container.
 
 If you were to use [agwwrap], you would wire things up like this if you have a local AGWPE endpoint at `127.0.0.1:8000`:
 
