@@ -5,8 +5,13 @@ set -e
 READ_SOCK=/bbs-sock/api-read.sock
 
 list_pools() {
-  curl -Ssf --unix-socket "$READ_SOCK" http://localhost/exam/questions | jq -r '.[]'
+  if ! curl -Ssf --unix-socket "$READ_SOCK" http://localhost/exam/questions | jq -r '.[]'; then
+    echo "ERROR: Failed to read list of pools." >&2
+    exit 1
+  fi
 }
+
+available_pools="$(list_pools | tr '\n' ',')"
 
 while getopts l ch; do
   case $ch in
@@ -22,11 +27,23 @@ done
 
 pool=$1
 if [[ -z "$pool" ]]; then
-  echo "You must specify the name of a question pool ($(list_pools | tr '\n' ','))." >&2
+  echo "You must specify the name of a question pool ($available_pools)." >&2
   exit 1
 fi
 
-question=$(curl -Ssf --unix-socket "$READ_SOCK" "http://localhost/exam/questions/$pool")
+qid=$2
+
+if [[ -z "$qid" ]]; then
+  if ! question=$(curl -Ssf --unix-socket "$READ_SOCK" "http://localhost/exam/questions/$pool"); then
+    echo "ERROR: Failed to get a question from pool $pool. Available pools are $available_pools."
+    exit 1
+  fi
+else
+  if ! question=$(curl -Ssf --unix-socket "$READ_SOCK" "http://localhost/exam/questions/$pool/${qid^^}"); then
+    echo "ERROR: Failed to get question $qId from pool $pool." >&2
+    exit 1
+  fi
+fi
 
 qId=$(jq -r .id <<<"$question")
 qQuestion=$(jq -r .question <<<"$question")
@@ -53,14 +70,19 @@ echo
 while :; do
   printf "Your answer? "
   read -r answer
-  if [[ ${answer^^} =~ ^[ABCD]$ ]]; then
+  if [[ ${answer^^} =~ ^["${letters}"]$ ]]; then
     break
+  elif [[ ${answer^^} = Q ]]; then
+    exit
   fi
 done
 
 echo
+
 if [[ ${answer^^} = "${qAnswer^^}" ]]; then
   printf "That's correct! Great work.\n"
 else
-  printf "The correct answer was $qAnswer.\n"
+  printf "The correct answer was %s.\n" "$qAnswer"
 fi
+
+echo

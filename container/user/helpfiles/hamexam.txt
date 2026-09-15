@@ -1,0 +1,21 @@
+An amateur radio question tool.
+
+To see a list of available questions pool:
+
+    hamexam -l
+
+To receive a random questoin from a pool:
+
+    hamexam <pool>
+
+    For example:
+
+    hamexam technician
+
+To see a particular question:
+
+    hamexam <pool> <question_id>
+
+    For example:
+
+    hamexam technician T9A07
