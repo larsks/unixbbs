@@ -3,12 +3,10 @@
 set -e
 
 READ_SOCK=/bbs-sock/api-read.sock
+FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight") | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
 
 case "$1" in
-"")
-  FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight") | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
-  ;;
---long)
+--long | -l)
   FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight" or .isDaytime == true) | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
   ;;
 *)
