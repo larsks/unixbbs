@@ -11,6 +11,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - container/**
+      - compose.yaml
+      - api-service/**
+      - chat-service/**
   workflow_dispatch: {}
 
 concurrency:
@@ -18,7 +23,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Lets a commit opt out of the whole workflow via a trailer, e.g. for
+  # doc-only or trivial changes that happen to touch a watched path:
+  #
+  #   x-build-image: false
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.trailer.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for x-build-image trailer
+        id: trailer
+        run: |
+          trailer=$(git log -1 --format=%B | git interpret-trailers --parse | grep -i '^x-build-image:' | tail -n1 | cut -d: -f2- | tr -d '[:space:]')
+          if [ "$(echo "$trailer" | tr '[:upper:]' '[:lower:]')" = "false" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   version:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
