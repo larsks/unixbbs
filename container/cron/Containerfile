@@ -6,6 +6,5 @@ RUN apk add \
   vim
 
 COPY crontabs /crontabs
-RUN chmod 755 /usr/local/bin/*
 
 CMD ["crond", "-f", "-c", "/crontabs", "-d", "8"]
