@@ -1,9 +1,12 @@
+#!/bin/sh
 # Sourced by the entrypoint before exec'ing the interactive shell.
 
 export PS1="$(id -un)$ "
-export TERM=dumb
-export LESS=-dE
 export PAGER=less
+
+if [ "$TERM" = dumb ]; then
+  export LESS=-dE
+fi
 
 # Prevent annoying double-echo when using character-buffered clients.
 if [ "${BBS_DISABLE_ECHO:-}" = 1 ]; then

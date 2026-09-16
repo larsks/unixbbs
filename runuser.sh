@@ -2,6 +2,8 @@
 
 : "${BBS_DISABLE_ECHO:=1}"
 : "${BBS_DISABLE_NETWORK:=1}"
+: "${BBS_TERM:=dumb}"
+: "${BBS_SHELL:=dash}"
 
 while getopts c:l ch; do
   case $ch in
@@ -11,6 +13,8 @@ while getopts c:l ch; do
   l)
     BBS_DISABLE_ECHO=0
     BBS_DISABLE_NETWORK=0
+    BBS_SHELL=bash
+    BBS_TERM=xterm
     ;;
 
   \?) exit 2 ;;
@@ -50,5 +54,7 @@ docker run --rm -it \
   -v unixbbs-chatsock:/bbs-sock/chat \
   -e SRC_CALLSIGN="$SRC_CALLSIGN" \
   -e BBS_DISABLE_ECHO="${BBS_DISABLE_ECHO}" \
+  -e TERM="${BBS_TERM}" \
   "${docker_args[@]}" \
-  "ghcr.io/larsks/unixbbs-user:${TAG:-latest}"
+  "ghcr.io/larsks/unixbbs-user:${TAG:-latest}" \
+  "${BBS_SHELL:-dash}"

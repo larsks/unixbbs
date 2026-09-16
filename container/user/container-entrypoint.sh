@@ -104,4 +104,4 @@ export HOME="/bbs-data/home/$USERID"
 #    cwd (`/`, the image's default WORKDIR) despite $HOME being set
 #    correctly. The `cd` runs as the already-unprivileged account, which
 #    is fine: it owns its own home directory (0700, see §5).
-exec su-exec "$CALLSIGN" /usr/bin/dash -c 'cd "$HOME"; . /etc/bbs-profile; exec /usr/bin/dash'
+exec su-exec "$CALLSIGN" /usr/bin/dash -c 'cd "$HOME"; . /etc/bbs-profile; exec "$@"' -- "$@"
