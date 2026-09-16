@@ -91,6 +91,11 @@ services:
       - bbs-mailsock:/var/spool/postfix/public/bbssock
     restart: unless-stopped
 
+  user:
+    profiles:
+      - pull-only
+    image: ghcr.io/larsks/unixbbs-user:${TAG:-latest}
+
 volumes:
   bbs-data:
     name: unixbbs-data
