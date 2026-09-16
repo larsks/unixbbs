@@ -1,19 +1,27 @@
-#!/bin/sh
+#!/bin/bash
 # Display the local forecast returned by api-service.
 set -e
 
 READ_SOCK=/bbs-sock/api-read.sock
 FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight") | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
 
-case "$1" in
---long | -l)
-  FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight" or .isDaytime == true) | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
-  ;;
-*)
-  echo "usage: weather [--long]" >&2
-  exit 1
-  ;;
-esac
+while (($# > 0)); do
+  case "$1" in
+  --long | -l)
+    shift
+    FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight" or .isDaytime == true) | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
+    ;;
+  --)
+    shift
+    break
+    ;;
+  -*)
+    echo "usage: weather [--long]" >&2
+    exit 1
+    ;;
+  *) break ;;
+  esac
+done
 
 echo
 curl -sf --unix-socket "$READ_SOCK" http://localhost/weather |
