@@ -10,6 +10,20 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+)
+
+// asciiReplacer downgrades the "smart" typographic punctuation found in the
+// upstream question pools to plain ASCII, since some clients can only
+// display ASCII.
+var asciiReplacer = strings.NewReplacer(
+	"‘", "'", // left single quotation mark
+	"’", "'", // right single quotation mark
+	"“", "\"", // left double quotation mark
+	"”", "\"", // right double quotation mark
+	"–", "-", // en dash
+	"—", "--", // em dash
+	"…", "...", // horizontal ellipsis
 )
 
 type (
@@ -36,6 +50,16 @@ type (
 	}
 )
 
+// toASCII downgrades the "smart" typographic punctuation used in the
+// question text and references to plain ASCII.
+func (q *Question) toASCII() {
+	q.Question = asciiReplacer.Replace(q.Question)
+	q.Refs = asciiReplacer.Replace(q.Refs)
+	for i, answer := range q.Answers {
+		q.Answers[i] = asciiReplacer.Replace(answer)
+	}
+}
+
 func LoadQuestionsFromFile(path string) (Questions, error) {
 	fd, err := os.Open(path)
 	if err != nil {
@@ -49,6 +73,10 @@ func LoadQuestionsFromFile(path string) (Questions, error) {
 	var questions Questions
 	if err := json.Unmarshal(content, &questions); err != nil {
 		return nil, fmt.Errorf("failed to parse json: %w", err)
+	}
+
+	for i := range questions {
+		questions[i].toASCII()
 	}
 
 	return questions, nil
