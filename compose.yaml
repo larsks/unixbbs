@@ -89,9 +89,6 @@ services:
     volumes:
       - bbs-data:/bbs-data
       - bbs-mailsock:/var/spool/postfix/public/bbssock
-      - bbs-sock:/bbs-sock
-    depends_on:
-      - api-service
     restart: unless-stopped
 
 volumes:

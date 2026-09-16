@@ -144,50 +144,6 @@ func TestHandleLookupRecordsLogin(t *testing.T) {
 	}
 }
 
-func TestHandleExpireLogins(t *testing.T) {
-	h := newTestHandlers(t)
-	writeClient, _ := testServer(t, h.WriteMux())
-	readClient, _ := testServer(t, h.ReadMux())
-
-	body, _ := json.Marshal(lookupRequest{Callsign: "N0CALL"})
-	resp, err := writeClient.Post("http://unix/users/lookup", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("POST /users/lookup: %v", err)
-	}
-	resp.Body.Close()
-
-	expireResp, err := writeClient.Post("http://unix/users/logins/expire", "application/json", nil)
-	if err != nil {
-		t.Fatalf("POST /users/logins/expire: %v", err)
-	}
-	defer expireResp.Body.Close()
-
-	var got expireLoginsResponse
-	if err := json.NewDecoder(expireResp.Body).Decode(&got); err != nil {
-		t.Fatalf("decode /users/logins/expire: %v", err)
-	}
-	// The login just recorded is well within the 14-day retention
-	// window, so nothing should have been deleted.
-	if got.Deleted != 0 {
-		t.Errorf("Deleted = %d, want 0 (recent login should not expire)", got.Deleted)
-	}
-
-	loginsResp, err := readClient.Get("http://unix/users/logins")
-	if err != nil {
-		t.Fatalf("GET /users/logins: %v", err)
-	}
-	defer loginsResp.Body.Close()
-	var logins []struct {
-		Callsign string `json:"callsign"`
-	}
-	if err := json.NewDecoder(loginsResp.Body).Decode(&logins); err != nil {
-		t.Fatalf("decode /users/logins: %v", err)
-	}
-	if len(logins) != 1 {
-		t.Fatalf("len(logins) = %d, want 1 (recent login preserved)", len(logins))
-	}
-}
-
 func TestHandleListAndOnline(t *testing.T) {
 	h := newTestHandlers(t)
 	writeClient, _ := testServer(t, h.WriteMux())

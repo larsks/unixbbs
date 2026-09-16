@@ -59,7 +59,6 @@ func (h *Handlers) WriteMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /users/lookup", h.handleLookup)
 	mux.HandleFunc("POST /users/presence", h.handlePresence)
-	mux.HandleFunc("POST /users/logins/expire", h.handleExpireLogins)
 	return mux
 }
 
@@ -382,26 +381,6 @@ func (h *Handlers) handleRecentLogins(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, out)
-}
-
-type expireLoginsResponse struct {
-	Deleted int64 `json:"deleted"`
-}
-
-// handleExpireLogins deletes login history older than 14 days. Called
-// by a daily cron job (container/cron) -- see DESIGN.md's note that
-// api-service is the only writer to bbs.db, so the cron container
-// goes through this endpoint rather than touching the database file
-// directly.
-func (h *Handlers) handleExpireLogins(w http.ResponseWriter, r *http.Request) {
-	n, err := h.Store.ExpireLogins(r.Context())
-	if err != nil {
-		log.Printf("expire logins: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, expireLoginsResponse{Deleted: n})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

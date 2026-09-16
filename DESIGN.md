@@ -1305,8 +1305,8 @@ the driver level too, not just by the mount.
 **Implemented**: a `logins` table in `bbs.db` (schema in
 `internal/store/schema.sql`, alongside `users`), a `last` command
 (`container/user/last.sh`, installed as `/usr/local/bin/last`,
-replacing busybox's own `last` applet — see below), and a daily
-`expire-logins` cron job in `container/cron`.
+replacing busybox's own `last` applet — see below), and a periodic
+in-process expiry loop in `api-service` (see below).
 
 A row is appended to `logins` (uid, callsign, timestamp) every time
 `handleLookup` succeeds on `api-write.sock` — that endpoint already
@@ -1325,13 +1325,16 @@ since sessions aren't OS-level logins) purely through `$PATH` ordering:
 `/usr/local/bin` precedes `/usr/bin`, the same mechanism already
 relied on for `users`/`news`/`chat`/`help`.
 
-Retention (14 days) is enforced by `api-service` itself, not by the
-cron container: `api-service` is the only writer to `bbs.db` (§4/§6),
-so `expire-logins` (`container/cron/expire-logins.sh`) calls a new
-write-socket endpoint, `POST /users/logins/expire`, rather than
-deleting rows from `bbs.db` directly. This is why `cron-service` now
-also mounts the `unixbbs-sock` volume at `/bbs-sock` and depends on
-`api-service` in `compose.yaml`, alongside the existing `bbs-data` and
-`bbs-mailsock` mounts it already had for `update-news`. The job runs
-daily at 03:15, alongside the existing `*/30` `update-news` schedule in
-`container/cron/crontabs/root`.
+Retention (14 days) is enforced by `api-service` itself: `api-service`
+is the only writer to `bbs.db` (§4/§6), and since the schedule that
+drives expiry has no reason to live outside the process that owns the
+write, it doesn't go through `cron-service` (unlike `update-news`,
+which manipulates the `bbs-data` volume directly via `git`/filesystem
+operations with no owning service, and so has no analogous in-process
+home). `main.go` starts a goroutine
+(`expireLoginsPeriodically`) that calls `store.Store.ExpireLogins`
+once at startup and then on a `-expire-logins-interval` ticker
+(default 24h) for the lifetime of the process. `cron-service` no
+longer mounts the `unixbbs-sock` volume or depends on `api-service` in
+`compose.yaml` — its only remaining job is the existing `*/30`
+`update-news` schedule in `container/cron/crontabs/root`.

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -28,12 +29,16 @@ func main() {
 	weatherURL := flag.String("weather-url", api.DefaultWeatherURL, "URL of the Weather.gov forecast endpoint")
 	weatherUserAgent := flag.String("weather-user-agent", api.DefaultWeatherUserAgent, "User-Agent sent to the weather endpoint")
 	weatherCacheTTLSeconds := flag.Int64("weather-cache-ttl", 1800, "weather response cache TTL in seconds; 0 disables caching")
+	expireLoginsInterval := flag.Duration("expire-logins-interval", 24*time.Hour, "how often to expire login history rows older than 14 days")
 	flag.Parse()
 	if err := validateHTTPURL(*weatherURL); err != nil {
 		log.Fatalf("invalid weather URL: %v", err)
 	}
 	if *weatherCacheTTLSeconds < 0 {
 		log.Fatalf("invalid weather cache TTL: must be zero or greater")
+	}
+	if *expireLoginsInterval <= 0 {
+		log.Fatalf("invalid expire-logins interval: must be greater than zero")
 	}
 
 	st, err := store.Open(*dbPath)
@@ -82,9 +87,30 @@ func main() {
 	go func() {
 		errCh <- http.Serve(readListener, handlers.ReadMux())
 	}()
+	go expireLoginsPeriodically(st, *expireLoginsInterval)
 
 	log.Printf("api-service listening: write=%s read=%s db=%s weather=%s cache_ttl=%s", *writeSockPath, *readSockPath, *dbPath, *weatherURL, time.Duration(*weatherCacheTTLSeconds)*time.Second)
 	log.Fatal(<-errCh)
+}
+
+// expireLoginsPeriodically deletes login history rows older than 14
+// days (store.Store.ExpireLogins), once immediately and then every
+// interval for the lifetime of the process. api-service is the only
+// writer to bbs.db (see DESIGN.md §4/§10), so this replaces a cron job
+// that used to call a write-socket endpoint to trigger the same
+// deletion from outside the process.
+func expireLoginsPeriodically(st *store.Store, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		if n, err := st.ExpireLogins(context.Background()); err != nil {
+			log.Printf("expire logins: %v", err)
+		} else if n > 0 {
+			log.Printf("expired %d login history row(s)", n)
+		}
+		<-ticker.C
+	}
 }
 
 func validateHTTPURL(raw string) error {
