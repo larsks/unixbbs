@@ -6,8 +6,7 @@ FROM base
 # linked in at all). See DESIGN.md §4.
 RUN apk add \
   postfix \
-  postfix-sqlite \
-  mailutils
+  postfix-sqlite
 
 COPY sqlite-virtual-mailbox.cf sqlite-virtual-uid.cf sqlite-virtual-gid.cf \
      virtual-news-mailbox virtual-news-uid virtual-news-gid /etc/postfix/

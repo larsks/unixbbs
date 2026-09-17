@@ -1,10 +1,5 @@
 FROM base
 
-RUN apk add \
-  dash \
-  mailutils \
-  vim
-
 COPY crontabs /crontabs
 
 CMD ["crond", "-f", "-c", "/crontabs", "-d", "8"]

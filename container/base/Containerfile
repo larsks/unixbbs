@@ -2,12 +2,16 @@ FROM docker.io/alpine:3
 
 RUN apk add \
   bash \
+  dash \
   ca-certificates \
   sqlite \
   curl \
   git \
   jq \
   openvi \
+  ed \
+  tzdata \
+  less \
   mailutils
 
   COPY etc/* /etc/

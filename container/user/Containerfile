@@ -7,31 +7,13 @@ WORKDIR /build/cbmbasic
 RUN make CPPFLAGS=-DPLUGIN_ON_DEFAULT
 
 
-FROM docker.io/alpine:3
+FROM base
 
-# See DESIGN.md §5 "Image contents":
-#   mailutils (not mailx -- mailx cannot read the Maildir format
-#     mail-service delivers into, see DESIGN.md §2.4)
-#   msmtp + socat  -- outbound relay path, see DESIGN.md §2.2/§2.3
-#   dash           -- provisioned account's login shell
-#   shadow         -- groupadd/useradd for per-session account provisioning
-#   su-exec        -- minimal privilege drop before exec'ing into dash
-#   curl + jq      -- api-service calls (lookup, presence, `users` and
-#                    `weather` commands)
 RUN apk add --no-cache \
-    mailutils \
     msmtp \
     socat \
-    dash \
     shadow \
     su-exec \
-    curl \
-    jq \
-    bash \
-    less \
-    openvi \
-    ed \
-    tzdata \
     coreutils-fmt
 
 COPY --from=build /build/cbmbasic/cbmbasic /usr/local/bin/basic
