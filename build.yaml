@@ -12,8 +12,8 @@
 services:
   base:
     build:
-      context: .
-      dockerfile: container/base/Containerfile
+      context: container/base
+      dockerfile: Containerfile
 
   api-service:
     image: ghcr.io/larsks/unixbbs-api-service:${TAG:-latest}
