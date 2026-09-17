@@ -1,0 +1,10 @@
+# Fixed uid for the 'news' pseudo-recipient's mailbox (see
+# virtual-news-mailbox). Must be >= virtual_minimum_uid (10000, see
+# Containerfile) for virtual(8) to accept it, so it can't reuse the
+# sub-10000 convention the (reverted) 'shared' pseudo-account used --
+# 20000 is comfortably clear of the real, auto-incrementing per-user uid
+# range that also starts at 10000
+# (api-service/internal/store/schema.sql). No corresponding system
+# account is needed: virtual(8) setuid()s to this numeric value
+# directly, it never needs an /etc/passwd entry.
+news	20000

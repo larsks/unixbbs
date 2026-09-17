@@ -1,0 +1,12 @@
+# Fixed pseudo-recipient for a "news" submission mailbox at
+# /bbs-data/mail/news-inbox -- distinct from the read-only
+# /bbs-data/news Maildir the `news` command reads (DESIGN.md's
+# Bulletins subsection); this one is a normal inbox for mail addressed
+# to "news". Independent of bbs.db: 'news' is not a row in the users
+# table, just fixed configuration. texthash: needs no postmap step
+# (unlike hash:, see Containerfile) and is layered ahead of the sqlite
+# per-user map in virtual_mailbox_maps -- Postfix tries each listed
+# table in turn and stops at the first match. Trailing slash is
+# required (see sqlite-virtual-mailbox.cf) to make this a Maildir
+# delivery, resolved relative to virtual_mailbox_base.
+news	news-inbox/

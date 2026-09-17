@@ -1,0 +1,5 @@
+# gid counterpart to virtual-news-uid -- see that file for the uid/gid
+# choice's rationale. Kept equal to the uid, matching the uid==gid
+# convention sqlite-virtual-uid.cf/sqlite-virtual-gid.cf already use for
+# real per-user mailboxes.
+news	20000
