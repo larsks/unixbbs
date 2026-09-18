@@ -3,7 +3,7 @@
 set -e
 
 READ_SOCK=/bbs-sock/api-read.sock
-FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight") | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
+FILTER='[.properties.periods[] | select(.name == "Today" or .name == "Tonight" or .name == "This Afternoon") | "\(.name)\n\(.detailedForecast)"] | join("\n\n")'
 
 while (($# > 0)); do
   case "$1" in
