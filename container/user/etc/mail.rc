@@ -7,4 +7,4 @@ set prompt="mail> " hold dot
 # listing to the Date: header instead, which mailutils *does* convert
 # to local time correctly.
 set datefield
-ignore Return-Path X-Original-To Delivered-To Received Message-ID User-Agent
+ignore Return-Path X-Original-To Delivered-To Received Message-ID User-Agent Status

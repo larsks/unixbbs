@@ -2,6 +2,7 @@
 
 : "${BBS_DISABLE_ECHO:=1}"
 : "${BBS_DISABLE_NETWORK:=1}"
+: "${BBS_READONLY:=1}"
 : "${BBS_TERM:=dumb}"
 : "${BBS_SHELL:=dash}"
 
@@ -15,6 +16,7 @@ while getopts c:l ch; do
     BBS_DISABLE_NETWORK=0
     BBS_SHELL=bash
     BBS_TERM=xterm
+    BBS_READONLY=0
     ;;
 
   \?) exit 2 ;;
@@ -25,6 +27,10 @@ shift $((OPTIND - 1))
 docker_args=()
 if ((BBS_DISABLE_NETWORK)); then
   docker_args+=(--network none)
+fi
+
+if ((BBS_READONLY)); then
+  docker_args+=(--read-only)
 fi
 
 if [[ -z "$SRC_CALLSIGN" ]]; then
@@ -40,7 +46,6 @@ fi
 
 docker run --rm -it \
   --name "$container_name" \
-  --read-only \
   --tmpfs /etc \
   --tmpfs /tmp \
   --pids-limit=64 \

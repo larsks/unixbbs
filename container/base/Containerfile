@@ -16,3 +16,4 @@ RUN apk add \
   less
 
   COPY etc/* /etc/
+  RUN ln -s /etc /usr/local/etc
