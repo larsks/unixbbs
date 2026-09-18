@@ -1,5 +1,7 @@
 FROM docker.io/alpine:3
 
+COPY --from=ghcr.io/larsks/s-nail-builder:main /usr/local/bin/mail /usr/local/bin/
+
 RUN apk add \
   bash \
   dash \
@@ -11,7 +13,6 @@ RUN apk add \
   openvi \
   ed \
   tzdata \
-  less \
-  mailutils
+  less
 
   COPY etc/* /etc/

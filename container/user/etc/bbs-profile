@@ -6,6 +6,8 @@ export PAGER=less
 
 if [ "$TERM" = dumb ]; then
   export LESS=-dE
+  export LANG=C
+  export LC_ALL=C
 fi
 
 # Prevent annoying double-echo when using character-buffered clients.
