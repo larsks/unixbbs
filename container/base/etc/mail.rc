@@ -1,2 +1,4 @@
+set prompt="mail> "
+set hold dot
 set datefield
-ignore Return-Path X-Original-To Delivered-To Received Message-ID User-Agent
+ignore Return-Path X-Original-To Delivered-To Received Message-ID User-Agent In-Reply-To References
