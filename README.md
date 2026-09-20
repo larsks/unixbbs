@@ -14,32 +14,30 @@ There are several images involved:
   `compose.yaml`'s header comment)
 - Image used for ephemeral user containers
 
-To build everything, run the `build-all.sh` script:
+To build everything, run:
 
-    sh build-all.sh
-
-which runs `docker compose -f build.yaml build`, then a plain `docker
-build` for the ephemeral user container.
+    docker compose -f build.yaml build
 
 Building locally (particularly on a Raspberry Pi) is resource intensive.
 Pre-built multi-arch (amd64/arm64) images are published automatically to
-`ghcr.io/larsks` -- see `.github/workflows/build-images.yml`. To use them
-instead of building locally, run `docker compose pull` (compose.yaml
-declares an `image:` for each service); see `.env.example` for pinning a
-specific `TAG` instead of always tracking `latest`.
+`ghcr.io/larsks` -- see `.github/workflows/build-images.yml`. To download the
+latest images, run:
+
+    docker compose --profile pull-only pull
 
 Publishing runs on every push to `main` and versions releases
-automatically, via [semantic-release](https://github.com/semantic-release/semantic-release)
-(config in `.releaserc.json`), from [Conventional Commits](https://www.conventionalcommits.org/)
-commit messages (`fix:` -> patch, `feat:` -> minor, `BREAKING CHANGE:` ->
-major). Commits that don't follow that convention don't bump the version
-or publish new images. Each release is published under four tags --
-`latest`, `x.y.z`, `x.y`, and `x` -- so you can float on the latest
-release, a minor line, or a major line instead of pinning an exact
-version.
+automatically, via [semantic-release] (config in `.releaserc.json`), from
+[Conventional Commits] commit messages (`fix:` -> patch, `feat:` -> minor,
+`BREAKING CHANGE:` -> major). Commits that don't follow that convention
+don't bump the version or publish new images. Each release is published
+under four tags -- `latest`, `x.y.z`, `x.y`, and `x` -- so you can float on
+the latest release, a minor line, or a major line instead of pinning an
+exact version.
+
+[semantic-release]: https://github.com/semantic-release/semantic-release
+[convential commits]: https://www.conventionalcommits.org/
 
 ## Running
-
 
 First bring up the persistent services:
 
