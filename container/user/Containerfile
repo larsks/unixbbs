@@ -18,10 +18,10 @@ RUN apk add --no-cache \
 
 COPY --from=build /build/cbmbasic/cbmbasic /usr/local/bin/basic
 
-# Alpine has no update-alternatives mechanism, so installing msmtp does
-# not repoint /usr/sbin/sendmail at it -- it's left as busybox's own
-# sendmail stub applet, which mailutils' `mail` invokes and which
-# silently fails to actually send anything (confirmed by testing: `mail`
+# Alpine has no update-alternatives mechanism, so installing msmtp
+# does not repoint /usr/sbin/sendmail at it -- it's left as busybox's
+# own sendmail stub applet, which `mail` invokes and which silently
+# fails to actually send anything (confirmed by testing: `mail`
 # reported "cannot send message" with no other clue). msmtp ships its
 # own drop-in sendmail-compatible CLI, so this symlink is required.
 RUN ln -sf /usr/bin/msmtp /usr/sbin/sendmail
