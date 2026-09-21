@@ -200,7 +200,7 @@ equivalent, so there's no reason to pick `ssmtp`.)
 nicety**: installing `msmtp` on Alpine does **not** repoint
 `/usr/sbin/sendmail` at it — Alpine has no `update-alternatives`
 mechanism, so that path is left as a symlink to busybox's own
-`sendmail` stub applet. `mailutils`' `mail` always invokes plain
+`sendmail` stub applet. `mail` always invokes plain
 `sendmail`, never `msmtp` directly, so with the stock symlink left in
 place every send silently goes nowhere (`mail` reports "cannot send
 message" with no further detail; nothing reaches `mail-service` at
@@ -223,7 +223,7 @@ container.
 
 **The gotcha, and the fix — revised after further testing.** `msmtp` does
 no recipient-address completion of its own — it relays the recipient
-exactly as given, and GNU Mailutils' `mail` puts that recipient only in
+exactly as given, and `mail` puts that recipient only in
 the message's `To:`/`Cc:`/`Bcc:` headers (it invokes `sendmail -oi -f
 <envelope-from> -t`, with nothing on argv). So the literal spec command
 
@@ -276,7 +276,7 @@ myorigin = bbs.local
 
 Net: switching the ephemeral container's MTA to `msmtp` is a
 straightforward simplification with no gotcha to work around — a stock
-`mailutils` + stock `msmtp` + the `socat` shim from §2.2 is the whole
+`mail` + stock `msmtp` + the `socat` shim from §2.2 is the whole
 outbound path. The one real trade-off versus Postfix worth naming
 explicitly: `msmtp` has no local queue, so if `mail-service` is briefly
 unreachable, `mail` reports the send as failed immediately rather than
@@ -285,46 +285,30 @@ sibling container this is a minor concern (and arguably more honest than
 a retry the user can't observe), but it's a real behavior change from
 Postfix worth calling out to anyone integrating against this.
 
-### 2.4 Mail-reading client: `mailutils`, not `mailx` — Maildir support is the deciding factor
+### 2.4 Mail-reading client: `s-nail`, not `mailx` — Maildir support is the deciding factor
 
-Alpine packages both `mailutils` (GNU) and `mailx` (an Alpine package
-built from a 2001-vintage BSD/Heirloom-lineage `Mail`, snapshotted in
-2022) as candidates for the `mail` command required by the spec. They
-**conflict at the package level** — both claim the `mail`/`sendmail`
-command names, confirmed via `apk add`:
+Alpine packages both `mailutils` (GNU) and `mailx` (an Alpine package built
+from a 2001-vintage BSD/Heirloom-lineage `Mail`, snapshotted in 2022) as
+candidates for the `mail` command required by the spec. The `mailx` package
+does not implement Maildir support, and `mailutils` has a large dependency
+footprint.
 
-```
-ERROR: unable to select packages:
-  mailutils-3.21-r1: conflicts: mailx-8.1.2...[cmd:mail=3.21-r1]
-  mailx-8.1.2...: conflicts: mailutils-3.21-r1[cmd:mail=8.1.2...]
-```
+We have opted to use the `s-nail` package from
+<https://www.sdaoden.eu/code.html#s-mailx>, built via
+<https://github.com/larsks/s-nail-builder>.
 
-so exactly one has to be chosen for the image.
-
-`mailx` is far lighter (depends only on `libbsd`/`liblockfile`, ~7.3M
-total on a fresh image vs. `mailutils`'s ~18.2M — `mailutils` links a
-separate shared library per supported backend: `libmu_mbox`,
-`libmu_maildir`, `libmu_mh`, `libmu_pop`, `libmu_imap`, `libmu_sieve`,
-`libmu_dotmail`, `libmu_mailer`, most of which — POP/IMAP clients, Sieve
-filtering, MH folders — is irrelevant to a local-delivery-only BBS).
-
-But mailbox format support is the deciding factor, confirmed by testing
-both against the same mbox file and the same Maildir directory: `mailx`
-reads mbox fine but fails outright against a Maildir (`mail:
-/tmp/maildir: Is a directory` — no Maildir support at all), while
-`mailutils` reads either transparently with zero configuration —
-`MAIL=/path/to/mbox-file mail` and `MAIL=/path/to/maildir-dir mail` both
-just work, format auto-detected from the path. Since `mail-service`
+Since `mail-service`
 delivers as Maildir (see §4 — the natural, lock-free result of a
 trailing-slash entry in `virtual_mailbox_maps`, Postfix's own convention,
 and the format actually verified working during the §2.1/§2.3 testing),
-`mailx` is a non-starter and `mailutils` is required.
+`mailx` is a non-starter. Both `mailutils` and `s-nail` implement Maildir
+support, and `s-nail` is a simpler, single-binary installation.
 
-One thing checked and ruled out as a concern either way: both `mailx`
-and `mailutils` invoke `sendmail -t` (recipient only in the piped
-message's headers, nothing on argv) — confirmed identically for both by
-logging real argv from a fake `sendmail`. So the `myorigin` fix in §2.3
-is unaffected by this choice; it was purely a mailbox-format question.
+One thing checked and ruled out as a concern either way: `mail` from all three
+packages invokes `sendmail -t` (recipient only in the piped message's headers,
+nothing on argv) — confirmed identically for both by logging real argv from a
+fake `sendmail`. So the `myorigin` fix in §2.3 is unaffected by this choice; it
+was purely a mailbox-format question.
 
 ## 3. Data layout
 
@@ -355,9 +339,9 @@ unixbbs-data                 # named volume, mounted at /bbs-data in
                               # for why Maildir over mbox
   home/
     <uid>/                   # persistent per-user home dir, mode 0700
-  bulletins/                 # a Maildir (cur/new/tmp), owned root:root,
+  news/                      # a Maildir (cur/new/tmp), owned root:root,
                               # no group/other write bit -- see the
-                              # "Bulletins" subsection under §4
+                              # "News" subsection under §4
 
 unixbbs-sock                 # named volume, mounted at /bbs-sock in
                               # api-service
@@ -643,8 +627,7 @@ container):
    `mail-service` has mounted read-write across the **whole** tree (it's
    the only container that ever needs to reach any user's mailbox
    regardless of who's currently logged in). Maildir over mbox is
-   deliberate, not incidental — see §2.4 for why, and for why that also
-   settles `mailutils` vs `mailx` for the read path below.
+   deliberate, not incidental — see §2.4 for why.
 
    **Confirmed by testing, not just assumed from the docs**: the file
    delivered actually lands owned by the *recipient's own* uid:gid, not
@@ -673,38 +656,36 @@ container):
    needs rotation or a size cap of its own — the ring buffer's fixed size
    already bounds it.
 
-**Read path** (`mail`, run inside a user container): no socket call
-needed. `mail/` and `home/` are bind-mounted **in full** (not per-UID)
-into every ephemeral container at fixed paths, e.g. `/bbs-data/mail` and
-`/bbs-data/home` — see §5 for why this is safe and how it resolves the
-mount-timing problem an earlier draft of this design had. `$MAIL` is set
-to `/bbs-data/mail/<uid>/` for the provisioned account — GNU Mailutils'
-`mail` auto-detects the Maildir format from that path with zero further
-configuration (confirmed by testing; `mailx` cannot read a Maildir at
-all, which is why `mailutils` is the required package — see §2.4).
+**Read path** (`mail`, run inside a user container): no socket call needed.
+`mail/` and `home/` are bind-mounted **in full** (not per-UID) into every
+ephemeral container at fixed paths, e.g. `/bbs-data/mail` and `/bbs-data/home`
+— see §5 for why this is safe and how it resolves the mount-timing problem an
+earlier draft of this design had. `$MAIL` is set to `/bbs-data/mail/<uid>/` for
+the provisioned account — `mail` (from `s-nail`) auto-detects the Maildir
+format from that path with zero further configuration.
 
-### Bulletins
+### News
 
-The bulletin board is **also a Maildir**, not a plain directory of
-text files — this reuses `mailutils`/`mail`, already a required
-dependency, as the entire bulletin-reading UI for free: header
+The news board is **also a Maildir**, not a plain directory of
+text files — this reuses `mail`, already a required
+dependency, as the entire news-reading UI for free: header
 summaries, per-message reading, all of it, with zero new code beyond a
-one-line wrapper script. `/usr/local/bin/bulletins` (installed exactly
+one-line wrapper script. `/usr/local/bin/news` (installed exactly
 like `/usr/local/bin/users`, see §4.1/§4.2) is just
-`exec mail -f /bbs-data/bulletins`. Adding a bulletin is then just
+`exec mail -f /bbs-data/news`. Adding a news item is then just
 dropping an RFC822-formatted file (`From:`/`Subject:`/`Date:`/blank
 line/body) into that Maildir's `new/`, owned root — no service, no
 database, no code.
 
 **A real, confirmed-by-testing gotcha**: a Docker-level `:ro` bind
-mount does **not** work here. GNU Mailutils' Maildir backend always
-tries to open the mailbox for read-write first, regardless of intent —
-against a true `:ro` mount that open fails outright
-(`mu_mailbox_open failed: Read-only file system`, exit 1, no headers,
-no message text, nothing usable at all).
+mount does **not** work here when using GNU Mailutils. Mailutils' Maildir
+backend always tries to open the mailbox for read-write first, regardless of
+intent — against a true `:ro` mount that open fails outright (`mu_mailbox_open
+failed: Read-only file system`, exit 1, no headers, no message text, nothing
+usable at all). This issue **has not** been tested with `s-nail`.
 
 The fix is **Unix permissions, not the mount flag**: bind-mount the
-bulletins Maildir read-**write** at the Docker level, but own every
+news Maildir read-**write** at the Docker level, but own every
 file and directory in it `root:root` with no write bit for
 group/other. Running as the unprivileged provisioned account, `mail`'s
 write-open then fails with `EACCES`, and — confirmed by testing —
@@ -713,10 +694,10 @@ open on its own, printing one line (`mail: mailbox opened
 read-only`) and remaining fully functional: header summaries and
 message bodies both read correctly. A useful side effect of this over
 a real writable Maildir: since it can't write, `mail` never renames a
-message from `new/` to `cur/` to mark it read, so a bulletin never
-stops showing up as new — the same, unmutated state is what every
+message from `new/` to `cur/` to mark it read, so a news item never
+stops showing up as new — the same, un-mutated state is what every
 session sees, which is arguably the more correct behavior for a
-bulletin board anyway (confirmed: re-running `bulletins` twice left
+news board anyway (confirmed: re-running `news` twice left
 `new/` untouched on the host both times).
 
 ## 5. Ephemeral user container
@@ -750,7 +731,7 @@ not a blocker.)
   available there, confirmed (Alpine ships Postfix 3.11.x as of this
   writing; the mail-service side needs the separate `postfix-sqlite`
   package for `virtual_mailbox_maps = sqlite:...`, per §4).
-- `mailutils` — not `mailx`, which can't read the Maildir format
+- `s-nail` — not `mailx`, which can't read the Maildir format
   `mail-service` delivers into; see §2.4 — for `mail`, + stock `msmtp`
   (for outbound relay — see §2.3 for why `msmtp` instead of Postfix) as
   `/usr/sbin/sendmail`. No wrapper, no extra config beyond `/etc/msmtprc`
@@ -768,7 +749,7 @@ not a blocker.)
   (network=none, read-only rootfs, single low-privilege UID, curated
   `PATH`) is the confinement mechanism, not the shell.
 - A `.profile` that prints a plain-text banner/menu line on login purely
-  for UX (e.g. pointing out `mail` and `bulletins`) — cosmetic, not a
+  for UX (e.g. pointing out `mail` and `news`) — cosmetic, not a
   security boundary.
 - `curl` (or a small statically-linked Go helper) for the
   `api-service` lookup call, presence registration, and the `users`
@@ -816,7 +797,7 @@ not a blocker.)
    Also required: `docker run --hostname bbs.local` (anything with a dot
    works; this specific value matches `mail-service`'s own `myorigin`).
    Without it, Docker's default hostname is just the short container ID
-   (e.g. `fe154e733e1e`) — and confirmed by testing, GNU Mailutils' `mail`
+   (e.g. `fe154e733e1e`) — and confirmed by testing, `mail`
    treats any dot-less hostname as not-yet-fully-qualified and tries to
    canonicalize it via `getaddrinfo(..., AI_CANONNAME)` on **every
    startup**, even for purely-local operations like checking for new
@@ -826,7 +807,8 @@ not a blocker.)
    resolver timeout before giving up and falling back to the unqualified
    name anyway. Giving the container an already-dotted hostname up front
    skips the lookup entirely: confirmed by testing, `mail -N` drops from
-   5.00s to instant with no other change.
+   5.00s to instant with no other change. **Note**: This was tested with GNU
+   mailutils, but we are now using `s-nail`.
 
    The dotted hostname only fixes the mailbox-*check* path, though —
    confirmed by `strace`, `mail -N` now issues zero DNS queries, but
@@ -953,7 +935,7 @@ not a blocker.)
   didn't fix mail sending anyway, which turned out to be an unrelated
   directory-permission gap on `mail-service`'s side (§2.1), not a
   capability at all. Confirmed by testing: with that gap fixed, the full
-  flow (login, provisioning, mail send/read, `users`, `bulletins`) works
+  flow (login, provisioning, mail send/read, `users`, `news`) works
   identically whether or not `--cap-drop=ALL` is present, so it was
   dropped from the recommended command rather than kept with three
   capabilities added back for no remaining benefit.
@@ -988,9 +970,9 @@ not a blocker.)
    `msmtp` + `socat` baked into the ephemeral image per §2.2/§2.3. Test
    with the literal command from the spec: `echo "Hello world" | mail -s
    "test message" n0call`.
-4. Bulletins: a root-owned, no-write-bit Maildir read via `mail -f`
-   through a one-line `/usr/local/bin/bulletins` wrapper — see §4's
-   "Bulletins" subsection.
+4. News: a root-owned, no-write-bit Maildir read via `mail -f`
+   through a one-line `/usr/local/bin/news` wrapper — see §4's
+   "News" subsection.
 5. `compose.yaml`, managing `api-service` and `mail-service` (the two
    persistent core services — the ephemeral container is explicitly out
    of this stack, see §1) with the three named volumes from §3 in place
@@ -1001,7 +983,7 @@ not a blocker.)
    step). Verified end-to-end against the real compose stack: `docker
    compose up`, then an ephemeral container using the three named
    volumes by name (as the external AX.25 spawner would) for login,
-   send, read, and `bulletins`, all passing — this is also what
+   send, read, and `news`, all passing — this is also what
    surfaced the `EnsureUserDirs` parent-directory-mode bug documented in
    §3.
 6. `chat-service` (§9, **done**): same Go/Unix-socket house style as
@@ -1097,7 +1079,7 @@ Neither applies here — the chat client just *is* `socat`, dialing the
 socket directly from the user's own already-unprivileged shell, so its
 peer credentials are correct for free. `/usr/local/bin/chat` is an
 ordinary `PATH` script (installed the same way as `/usr/local/bin/users`
-and `/usr/local/bin/bulletins`, §4.2/§4):
+and `/usr/local/bin/news`, §4.2/§4):
 
 ```sh
 #!/bin/sh
@@ -1120,7 +1102,7 @@ simply to leave the terminal alone: plain `socat - UNIX-CONNECT:...`,
 with no address options at all, keeps the existing (already-canonical,
 already-echoing) AX.25 terminal session's own line editing and echo
 exactly as it is for every other command in this image (`mail`,
-`users`, `bulletins`), and `chat-service` only ever has to deal with
+`users`, `news`), and `chat-service` only ever has to deal with
 complete, newline-terminated lines — never raw keystrokes.
 
 ### 9.2 Protocol
