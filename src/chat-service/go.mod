@@ -1,4 +1,4 @@
-module unixbbs/chat-service
+module unixbbs/src/chat-service
 
 go 1.26.2
 

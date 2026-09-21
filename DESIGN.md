@@ -1042,10 +1042,10 @@ not a blocker.)
 
 ## 9. Chat
 
-**Implemented**: `chat-service/` (Go module, mirroring `api-service/`'s
+**Implemented**: `src/chat-service/` (Go module, mirroring `src/api-service/`'s
 layout: `internal/chat` for the session registry/routing, `internal/
-identity` for the peer-credential lookup below), `container/
-chat-service/Containerfile`, the `chat-service` entry and
+identity` for the peer-credential lookup below),
+`container/chat-service/Containerfile`, the `chat-service` entry and
 `unixbbs-chatsock` volume in `compose.yaml`, and
 `container/user/chat.sh` (installed as `/usr/local/bin/chat`) in the
 ephemeral image. This section went through three real revisions during

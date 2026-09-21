@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"unixbbs/api-service/internal/exam"
-	"unixbbs/api-service/internal/presence"
-	"unixbbs/api-service/internal/store"
+	"unixbbs/src/api-service/internal/exam"
+	"unixbbs/src/api-service/internal/presence"
+	"unixbbs/src/api-service/internal/store"
 )
 
 const (

@@ -14,11 +14,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"unixbbs/api-service/internal/api"
-	"unixbbs/api-service/internal/exam"
-	"unixbbs/api-service/internal/presence"
-	"unixbbs/api-service/internal/provision"
-	"unixbbs/api-service/internal/store"
+	"unixbbs/src/api-service/internal/api"
+	"unixbbs/src/api-service/internal/exam"
+	"unixbbs/src/api-service/internal/presence"
+	"unixbbs/src/api-service/internal/provision"
+	"unixbbs/src/api-service/internal/store"
 )
 
 func main() {

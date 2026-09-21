@@ -1,4 +1,4 @@
-module unixbbs/api-service
+module unixbbs/src/api-service
 
 go 1.26.2
 

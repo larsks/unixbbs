@@ -13,8 +13,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"unixbbs/chat-service/internal/chat"
-	"unixbbs/chat-service/internal/identity"
+	"unixbbs/src/chat-service/internal/chat"
+	"unixbbs/src/chat-service/internal/identity"
 )
 
 func main() {

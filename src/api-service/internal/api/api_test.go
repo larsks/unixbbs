@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"unixbbs/api-service/internal/presence"
-	"unixbbs/api-service/internal/store"
+	"unixbbs/src/api-service/internal/presence"
+	"unixbbs/src/api-service/internal/store"
 )
 
 // stubProvisioner satisfies Provisioner without touching the

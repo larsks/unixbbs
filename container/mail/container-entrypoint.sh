@@ -28,7 +28,7 @@ install -d -o root -g root -m 0755 /var/spool/postfix/pid/unix.bbssock
 # bbs-data mounted read-write, so this is the natural place to create
 # it -- same as bbssock above. /bbs-data/mail is created first,
 # separately and root-owned: `install -d` (like Go's os.MkdirAll -- see
-# api-service/internal/provision/provision.go's EnsureUserDirs) applies
+# src/api-service/internal/provision/provision.go's EnsureUserDirs) applies
 # its mode/owner to every directory it has to create along the path, not
 # just the leaf, so creating news-inbox/ directly in one call on a fresh
 # volume would leave mail/ itself owned by the news uid/gid instead of
