@@ -11,4 +11,14 @@ set -e
 READ_SOCK=/bbs-sock/api-read.sock
 
 curl -s --unix-socket "$READ_SOCK" http://localhost/users/logins |
-  jq -r '.[] | "\(.callsign)\t\(.logged_in_at)"'
+  jq -r '.[] | "\(.callsign)\t\(.logged_in_at)"' |
+  while read -r callsign logged_in_at; do
+    # logged_in_at is a naive UTC string (no zone marker, e.g. "2026-09-21
+    # 14:23:01"). busybox `date -d` treats an unmarked string as already
+    # being in $TZ, so it must be parsed as UTC (TZ=UTC0) and re-rendered
+    # under the real $TZ via its epoch value -- passing it to `date -d`
+    # directly just relabels the zone without shifting the clock.
+    epoch=$(TZ=UTC0 date -d "$logged_in_at" +%s)
+    local_time=$(date -d "@$epoch" "+%Y-%m-%d %H:%M:%S %Z")
+    printf '%s\t%s\n' "$callsign" "$local_time"
+  done
